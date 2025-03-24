@@ -102,25 +102,69 @@ try {
                                      WHERE TABLE_NAME = ? 
                                      ORDER BY ORDINAL_POSITION");
             $stmt->execute([$source_table]);
-            $source_columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $raw_source_columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            // Sütun adlarını düzenle
-            foreach ($source_columns as &$col) {
-                $col['name'] = $col['COLUMN_NAME'];
+            // Mükerrer sütunları kontrol et ve benzersiz sütun listesi oluştur
+            $source_columns = [];
+            $column_names = [];
+            $duplicate_columns = [];
+            
+            foreach ($raw_source_columns as $col) {
+                $col_name = $col['COLUMN_NAME'];
+                
+                // Eğer bu sütun adı daha önce kullanılmışsa, mükerrer olarak işaretle
+                if (in_array($col_name, $column_names)) {
+                    $duplicate_columns[] = $col_name;
+                    continue; // Bu sütunu atla
+                }
+                
+                // Sütunu benzersiz listeye ekle
+                $column_names[] = $col_name;
+                
+                // Sütun adlarını düzenle
+                $col['name'] = $col_name;
                 $col['type'] = $col['DATA_TYPE'];
                 $col['length'] = $col['CHARACTER_MAXIMUM_LENGTH'];
+                $source_columns[] = $col;
+            }
+            
+            // Eğer mükerrer sütun varsa, uyarı ekle
+            if (!empty($duplicate_columns)) {
+                $_SESSION['warning_message'] = "Uyarı: " . $source_table . " tablosunda mükerrer sütunlar tespit edildi ve atlandı: " . implode(", ", $duplicate_columns) . ". Mükerrer sütunların sadece ilk kopyaları işlendi.";
             }
         } else {
             $stmt = $sourceDb->prepare("SHOW COLUMNS FROM `$source_table`");
             $stmt->execute();
-            $source_columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $raw_source_columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            // Sütun adlarını düzenle
-            foreach ($source_columns as &$col) {
-                $col['name'] = $col['Field'];
+            // Mükerrer sütunları kontrol et ve benzersiz sütun listesi oluştur
+            $source_columns = [];
+            $column_names = [];
+            $duplicate_columns = [];
+            
+            foreach ($raw_source_columns as $col) {
+                $col_name = $col['Field'];
+                
+                // Eğer bu sütun adı daha önce kullanılmışsa, mükerrer olarak işaretle
+                if (in_array($col_name, $column_names)) {
+                    $duplicate_columns[] = $col_name;
+                    continue; // Bu sütunu atla
+                }
+                
+                // Sütunu benzersiz listeye ekle
+                $column_names[] = $col_name;
+                
+                // Sütun adlarını düzenle
+                $col['name'] = $col_name;
                 $col['type'] = preg_replace('/\(.*\)/', '', $col['Type']);
                 preg_match('/\((\d+)\)/', $col['Type'], $matches);
                 $col['length'] = isset($matches[1]) ? $matches[1] : null;
+                $source_columns[] = $col;
+            }
+            
+            // Eğer mükerrer sütun varsa, uyarı ekle
+            if (!empty($duplicate_columns)) {
+                $_SESSION['warning_message'] = "Uyarı: " . $source_table . " tablosunda mükerrer sütunlar tespit edildi ve atlandı: " . implode(", ", $duplicate_columns) . ". Mükerrer sütunların sadece ilk kopyaları işlendi.";
             }
         }
         

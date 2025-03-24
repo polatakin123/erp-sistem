@@ -181,6 +181,10 @@ if (!empty($warnings)) {
             <div class="card-body">
                 <p>Dış veritabanından aşağıdaki tablolara veri aktarabilirsiniz:</p>
                 <div class="list-group">
+                    <a href="tablo_kopyala.php" class="list-group-item list-group-item-action list-group-item-danger">
+                        <i class="fas fa-clone me-2"></i> Tüm Tabloları Olduğu Gibi Kopyala
+                        <span class="badge bg-danger float-end">Tüm Kayıtlar</span>
+                    </a>
                     <a href="stok_aktarim.php" class="list-group-item list-group-item-action">
                         <i class="fas fa-boxes me-2"></i> Stok Verileri Aktarımı
                         <span class="badge bg-info float-end">Products</span>

@@ -35,6 +35,12 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?php echo strpos($_SERVER['PHP_SELF'], '/modules/irsaliye/') !== false ? 'active' : ''; ?>" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_listesi.php">
+                    <i class="fas fa-truck"></i>
+                    İrsaliye İşlemleri
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link <?php echo strpos($_SERVER['PHP_SELF'], '/modules/muhasebe/') !== false ? 'active' : ''; ?>" href="<?php echo $rootPath; ?>modules/muhasebe/index.php">
                     <i class="fas fa-calculator"></i>
                     Muhasebe

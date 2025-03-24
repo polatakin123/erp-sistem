@@ -25,20 +25,8 @@ $pageTitle = "Tabloları Oluştur";
 // Üst kısmı dahil et
 include_once '../../includes/header.php';
 
-// Oluşturulacak tabloların listesi
-$tablolar = [
-    'product_categories' => "CREATE TABLE product_categories (
-        id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        description TEXT,
-        parent_id INT(11) DEFAULT NULL,
-        status ENUM('active', 'passive') NOT NULL DEFAULT 'active',
-        created_at DATETIME NOT NULL,
-        created_by INT(11) NOT NULL,
-        updated_at DATETIME DEFAULT NULL,
-        updated_by INT(11) DEFAULT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-    
+// Tablolar ve oluşturma sorguları
+$tables = [
     'products' => "CREATE TABLE products (
         id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
         code VARCHAR(50) NOT NULL,
@@ -90,26 +78,39 @@ $tablolar = [
         id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
         product_id INT(11) NOT NULL,
         oem_no VARCHAR(100) NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-        UNIQUE KEY product_oem_unique (product_id, oem_no),
-        INDEX (oem_no)
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (product_id),
+        INDEX (oem_no),
+        UNIQUE KEY (product_id, oem_no)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
     
     // Muadil ürün grupları tablosu
     'alternative_groups' => "CREATE TABLE alternative_groups (
         id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        group_name VARCHAR(100),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        group_name VARCHAR(100) NOT NULL,
+        description TEXT DEFAULT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
     
-    // Ürün-Muadil grup ilişki tablosu
+    // Ürün-Muadil Grup ilişki tablosu
     'product_alternatives' => "CREATE TABLE product_alternatives (
+        id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
         product_id INT(11) NOT NULL,
         alternative_group_id INT(11) NOT NULL,
-        PRIMARY KEY (product_id, alternative_group_id),
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-        FOREIGN KEY (alternative_group_id) REFERENCES alternative_groups(id) ON DELETE CASCADE
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (product_id),
+        INDEX (alternative_group_id),
+        UNIQUE KEY (product_id, alternative_group_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
+    
+    'product_categories' => "CREATE TABLE product_categories (
+        id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        status ENUM('active', 'passive') NOT NULL DEFAULT 'active',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
 ];
 
@@ -118,7 +119,7 @@ try {
     $result = [];
     
     // Her tablo için döngü
-    foreach ($tablolar as $tablo => $sql) {
+    foreach ($tables as $tablo => $sql) {
         // Tablo var mı kontrol et
         $stmt = $db->query("SHOW TABLES LIKE '$tablo'");
         if ($stmt->rowCount() > 0) {

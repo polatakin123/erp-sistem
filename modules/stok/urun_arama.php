@@ -5,8 +5,50 @@
  * Bu dosya ürünleri detaylı arama ve filtreleme işlemlerini gerçekleştirir.
  */
 
+// Debug modu aktif
+$debug = true; // Hata ayıklama modunu aktifleştir
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 // Oturum başlat
 session_start();
+
+// Debug fonksiyonu
+function debugEcho($message, $variable = null) {
+    global $debug;
+    if ($debug) {
+        echo '<div style="background-color:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:10px; margin:10px 0; border-radius:5px;">';
+        echo '<strong>DEBUG:</strong> ' . $message;
+        if ($variable !== null) {
+            echo '<pre>';
+            print_r($variable);
+            echo '</pre>';
+        }
+        echo '</div>';
+    }
+}
+
+// Türkçe karakterleri İngilizce eşdeğerlerine dönüştüren fonksiyon
+function turkceKarakterDonustur($str) {
+    $turkceKarakterler = ['ç', 'Ç', 'ğ', 'Ğ', 'ı', 'İ', 'ö', 'Ö', 'ş', 'Ş', 'ü', 'Ü'];
+    $ingilizceKarakterler = ['c', 'C', 'g', 'G', 'i', 'I', 'o', 'O', 's', 'S', 'u', 'U'];
+    return str_replace($turkceKarakterler, $ingilizceKarakterler, $str);
+}
+
+// SQL sorgusu için Türkçe karakter dönüşümlü UPPER fonksiyonu
+function sqlTurkceUpper($columnName) {
+    return "UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE($columnName,'Ç','C'),'Ğ','G'),'İ','I'),'Ö','O'),'Ş','S'),'Ü','U'))";
+}
+
+// SQL için arama terimi hazırlama
+function searchTermPrepare($term) {
+    // Önce HTML entity'leri decode et
+    $term = html_entity_decode($term);
+    // Sonra Türkçe karakterleri dönüştür
+    $normalized = turkceKarakterDonustur($term);
+    // Son olarak büyük harfe çevir
+    return strtoupper($normalized);
+}
 
 // Oturum kontrolü
 if (!isset($_SESSION['user_id'])) {
@@ -18,6 +60,14 @@ if (!isset($_SESSION['user_id'])) {
 require_once '../../config/db.php';
 require_once '../../includes/functions.php';
 
+// PDO hata modunu değiştir ve emulated prepares aktif et
+if ($debug) {
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    // Emulated prepares'ı aktif et - LIMIT ve benzeri ifadelerde parametre sorunu yaşamamak için
+    $db->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+    debugEcho("PDO yapılandırması: Emulated Prepares aktif edildi");
+}
+
 // Sayfa başlığı
 $pageTitle = "Ürün Arama";
 
@@ -27,9 +77,8 @@ $arama = isset($_GET['arama']) ? clean($_GET['arama']) : '';
 // Detaylı arama için parametreleri al
 $stok_kodu = isset($_GET['stok_kodu']) ? clean($_GET['stok_kodu']) : '';
 $urun_adi = isset($_GET['urun_adi']) ? clean($_GET['urun_adi']) : '';
-$kategori_id = isset($_GET['kategori_id']) ? (int)$_GET['kategori_id'] : 0;
-$marka = isset($_GET['marka']) ? clean($_GET['marka']) : '';
-$model = isset($_GET['model']) ? clean($_GET['model']) : '';
+$tip = isset($_GET['tip']) ? clean($_GET['tip']) : '';
+$birim = isset($_GET['birim']) ? clean($_GET['birim']) : '';
 $min_stok = isset($_GET['min_stok']) ? (float)$_GET['min_stok'] : null;
 $max_stok = isset($_GET['max_stok']) ? (float)$_GET['max_stok'] : null;
 $min_fiyat = isset($_GET['min_fiyat']) ? (float)$_GET['min_fiyat'] : null;
@@ -39,262 +88,178 @@ $durum = isset($_GET['durum']) ? clean($_GET['durum']) : '';
 // Arama modunu belirle (hızlı/detaylı)
 $arama_modu = isset($_GET['arama_modu']) ? $_GET['arama_modu'] : 'hizli';
 
+// Sayfalama parametreleri
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$limit = 100; // Her sayfada 100 ürün
+$offset = ($page - 1) * $limit;
+
 // Ürünleri filtrele
 $urunler = [];
 $filtreSorgusu = false;
+$toplam_kayit = 0;
 
 // Hızlı arama
 if ($arama_modu == 'hizli' && !empty($arama)) {
     $filtreSorgusu = true;
     
     try {
-        // Arama kelimelerini boşluklara göre ayır
-        $arama_terimleri = explode(' ', trim($arama));
+        debugEcho("Hızlı arama işlemi başlatılıyor...");
         
-        // Ana sorgu - arama kriterine uyan tüm ürünleri bul
-        $sql = "
-        WITH matched_products AS (
-            SELECT p.*, c.name as category_name, 0 as is_alternative
-            FROM products p 
-            LEFT JOIN product_categories c ON p.category_id = c.id 
-            WHERE 1=1";
+        // Arama terimini kelimelere ayır
+        $arama_kelimeleri = explode(' ', trim($arama));
+        debugEcho("Arama terimleri:", $arama_kelimeleri);
         
+        // Her kelime için sorgu koşulu ve parametre oluştur
+        $where_parts = [];
         $params = [];
-        $param_index = 1;
         
-        // Her bir arama terimi için koşul ekle
-        foreach ($arama_terimleri as $index => $terim) {
-            if (strlen($terim) < 2) continue; // Çok kısa terimleri atla
+        foreach ($arama_kelimeleri as $kelime) {
+            if (strlen($kelime) < 2) continue; // Çok kısa kelimeleri atla
             
-            $sql .= " AND (
-                p.code LIKE :arama{$param_index} OR 
-                p.name LIKE :arama" . ($param_index + 1) . " OR 
-                p.description LIKE :arama" . ($param_index + 2) . " OR 
-                p.brand LIKE :arama" . ($param_index + 3) . " OR 
-                p.model LIKE :arama" . ($param_index + 4) . " OR 
-                c.name LIKE :arama" . ($param_index + 5) . " OR
-                p.oem_no LIKE :arama" . ($param_index + 6) . " OR
-                p.cross_reference LIKE :arama" . ($param_index + 7) . " OR
-                p.dimensions LIKE :arama" . ($param_index + 8) . " OR
-                p.shelf_code LIKE :arama" . ($param_index + 9) . " OR
-                p.vehicle_brand LIKE :arama" . ($param_index + 10) . " OR
-                p.vehicle_model LIKE :arama" . ($param_index + 11) . " OR
-                p.main_category LIKE :arama" . ($param_index + 12) . " OR
-                p.sub_category LIKE :arama" . ($param_index + 13) . " OR
-                EXISTS (SELECT 1 FROM oem_numbers WHERE product_id = p.id AND oem_no LIKE :arama" . ($param_index + 14) . ")
-            )";
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($kelime) . '%';
             
-            $arama_param = '%' . $terim . '%';
-            for ($i = 0; $i < 15; $i++) {
-                $params[':arama' . ($param_index + $i)] = $arama_param;
-            }
+            // Büyük harfe dönüştürülerek arama yapalım
+            $where_parts[] = "(" . sqlTurkceUpper("KOD") . " LIKE ? OR " . sqlTurkceUpper("ADI") . " LIKE ?)";
             
-            $param_index += 15;
+            $params[] = $search_param;
+            $params[] = $search_param;
+            
+            debugEcho("Kelime: $kelime, Arama parametresi: $search_param");
         }
         
-        $sql .= "),
-
-        -- İlk eşleşen ürünleri ve alternatif gruplarını belirleme
-        initial_matches AS (
-            SELECT 
-                mp.id,
-                (SELECT pa.alternative_group_id 
-                 FROM product_alternatives pa 
-                 WHERE pa.product_id = mp.id 
-                 LIMIT 1) as group_id
-            FROM matched_products mp
-        ),
-        
-        -- Tüm ilgili muadil grup ID'lerini toplama
-        all_related_groups AS (
-            SELECT DISTINCT alternative_group_id as group_id
-            FROM product_alternatives
-            WHERE alternative_group_id IN (
-                SELECT im.group_id FROM initial_matches im WHERE im.group_id IS NOT NULL
-            )
-        ),
-        
-        -- Muadil gruplardaki tüm ürünleri alma
-        all_alternative_products AS (
-            SELECT DISTINCT p.id
-            FROM products p
-            JOIN product_alternatives pa ON p.id = pa.product_id
-            WHERE pa.alternative_group_id IN (SELECT group_id FROM all_related_groups)
-        ),
-        
-        -- Genişletilmiş ürün listesi (arama sonucu + tüm muadil ürünler)
-        extended_product_list AS (
-            SELECT id FROM matched_products
-            UNION
-            SELECT id FROM all_alternative_products
-        ),
-        
-        -- Muadil ürün gruplarını belirle
-        product_group_info AS (
-            SELECT 
-                p.id,
-                p.code,
-                p.name,
-                p.category_id,
-                p.unit,
-                p.current_stock,
-                p.sale_price,
-                p.status,
-                p.brand,
-                p.model,
-                p.description,
-                p.oem_no,
-                p.cross_reference,
-                p.dimensions,
-                p.shelf_code,
-                p.vehicle_brand,
-                p.vehicle_model,
-                p.main_category,
-                p.sub_category,
-                c.name as category_name,
-                COALESCE(ag.id, 0) as group_id,
-                CASE 
-                    WHEN EXISTS (SELECT 1 FROM matched_products mp WHERE mp.id = p.id) THEN 1
-                    ELSE 0 
-                END as direct_match,
-                CASE
-                    WHEN p.code = '" . addslashes($arama) . "' THEN 1
-                    WHEN p.name = '" . addslashes($arama) . "' THEN 2
-                    WHEN p.name = 'Klasör' THEN 2
-                    WHEN p.name LIKE 'Klasör %' THEN 2
-                    WHEN p.name LIKE '% Klasör' THEN 3
-                    WHEN p.name LIKE '%" . addslashes($arama) . " %' OR p.name LIKE '% " . addslashes($arama) . " %' THEN 3
-                    WHEN p.name LIKE '%Klasör%' THEN 3
-                    WHEN p.name LIKE '%" . addslashes($arama) . "%' THEN 4
-                    WHEN EXISTS (SELECT 1 FROM matched_products mp WHERE mp.id = p.id) THEN 5
-                    ELSE 10
-                END as match_priority,
-                CASE
-                    WHEN EXISTS (SELECT 1 FROM matched_products mp WHERE mp.id = p.id) THEN 0
-                    ELSE 1
-                END as is_muadil,
-                COALESCE(
-                    (SELECT MIN(p2.id) 
-                     FROM product_alternatives pa2 
-                     JOIN products p2 ON pa2.product_id = p2.id 
-                     WHERE pa2.alternative_group_id = ag.id
-                     AND EXISTS (SELECT 1 FROM matched_products mp WHERE mp.id = p2.id)
-                     ORDER BY 
-                        CASE 
-                            WHEN p2.name LIKE '%" . addslashes($arama) . "%' THEN 1
-                            ELSE 2
-                        END,
-                        p2.id
-                    ), 
-                    COALESCE(
-                        (SELECT MIN(p3.id) 
-                         FROM product_alternatives pa3
-                         JOIN products p3 ON pa3.product_id = p3.id 
-                         WHERE pa3.alternative_group_id = ag.id
-                         ORDER BY p3.id),
-                        p.id
-                    )
-                ) as primary_product_id
-            FROM products p
-            LEFT JOIN product_categories c ON p.category_id = c.id
-            LEFT JOIN product_alternatives pa ON p.id = pa.product_id
-            LEFT JOIN alternative_groups ag ON pa.alternative_group_id = ag.id
-            WHERE p.id IN (SELECT id FROM extended_product_list)
-        ),
-        
-        -- Her gruptan bir ürün seç (ilk eşleşen) ve diğerlerini muadil olarak işaretle
-        final_results AS (
-            SELECT 
-                pg.id,
-                pg.code,
-                pg.name,
-                pg.category_id,
-                pg.unit,
-                pg.current_stock,
-                pg.sale_price,
-                pg.status,
-                pg.brand,
-                pg.model,
-                pg.description,
-                pg.oem_no,
-                pg.cross_reference,
-                pg.dimensions,
-                pg.shelf_code,
-                pg.vehicle_brand,
-                pg.vehicle_model,
-                pg.main_category,
-                pg.sub_category,
-                pg.category_name,
-                pg.group_id,
-                pg.direct_match,
-                pg.match_priority,
-                pg.is_muadil,
-                CASE 
-                    WHEN pg.id = pg.primary_product_id THEN 0
-                    WHEN pg.group_id > 0 THEN 1
-                    ELSE 0
-                END as is_alternative,
-                pg.primary_product_id
-            FROM product_group_info pg
-            WHERE 
-                pg.id = pg.primary_product_id  -- Ana ürünleri al
-                OR (pg.group_id > 0 AND pg.id <> pg.primary_product_id) -- Muadil ürünleri al
-        )
-        
-        SELECT * FROM final_results
-        ";
-        
-        // Sıralama için arama terimleriyle tam eşleşenlerin önce gelmesini sağlayan CASE ifadeleri
-        $primary_sort_cases = [];
-        foreach ($arama_terimleri as $index => $terim) {
-            if (strlen($terim) < 2) continue;
+        // Hiç geçerli kelime yoksa
+        if (empty($where_parts)) {
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($arama) . '%';
             
-            $primary_sort_cases[] = "CASE 
-                WHEN name = '" . addslashes($terim) . "' THEN 1
-                WHEN code = '" . addslashes($terim) . "' THEN 1
-                WHEN name = 'Klasör' THEN 1
-                WHEN name LIKE 'Klasör %' THEN 2
-                WHEN name LIKE '% Klasör' THEN 2
-                WHEN name LIKE '%Klasör%' THEN 2
-                WHEN name LIKE '" . addslashes($terim) . " %' THEN 2
-                WHEN name LIKE '% " . addslashes($terim) . "' THEN 2
-                WHEN name LIKE '%" . addslashes($terim) . "%' THEN 3
-                ELSE 4
-            END";
+            // Büyük harfe dönüştürülerek arama yapalım
+            $where_parts[] = "(" . sqlTurkceUpper("KOD") . " LIKE ? OR " . sqlTurkceUpper("ADI") . " LIKE ?)";
+            
+            $params[] = $search_param;
+            $params[] = $search_param;
+            
+            debugEcho("Tam arama: $arama, Arama parametresi: $search_param");
         }
         
-        // Sıralama kriterlerini ekle
-        if (!empty($primary_sort_cases)) {
-            $sql .= " ORDER BY is_muadil ASC, match_priority, " . implode(" + ", $primary_sort_cases);
-        } else {
-            $sql .= " ORDER BY is_muadil ASC, match_priority";
-        }
+        // WHERE koşulunu oluştur - tüm kelimeler için AND bağlacı kullan
+        $where_clause = implode(' AND ', $where_parts);
+        debugEcho("WHERE koşulu:", $where_clause);
+        debugEcho("Sorgu parametreleri:", $params);
         
-        // Önce ana ürünler (is_alternative=0), sonra group_id'ye göre sırala, 
-        // böylece aynı gruptaki ürünler bir arada gösterilir
-        $sql .= ", group_id, name ASC";
+        // Toplam kayıt sayısını al
+        $countSql = "SELECT COUNT(*) FROM stok WHERE " . $where_clause;
+        debugEcho("Sayım SQL sorgusu:", $countSql);
+        
+        $countStmt = $db->prepare($countSql);
+        $countStmt->execute($params);
+        debugEcho("Execute parametreleri COUNT: ", $params);
+        
+        $toplam_kayit = $countStmt->fetchColumn();
+        debugEcho("Toplam kayıt sayısı: " . $toplam_kayit);
+        
+        // Ana sorguyu hazırla - LIMIT ve OFFSET sorununu düzelt
+        $sql = "SELECT * FROM stok WHERE " . $where_clause . " ORDER BY ID DESC LIMIT " . (int)$offset . ", " . (int)$limit;
+        debugEcho("Ana SQL sorgusu:", $sql);
         
         $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        debugEcho("Execute parametreleri: ", $params);
         
-        // Parametreleri bağla
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        
-        $stmt->execute();
         $urunler = $stmt->fetchAll();
+        debugEcho("Bulunan ürün sayısı: " . count($urunler));
+        
+        // STK_FIS_HAR tablosundan stok miktarlarını al
+        if (count($urunler) > 0) {
+            try {
+                // Ürün ID'lerini al
+                $urunIds = [];
+                foreach ($urunler as $urun) {
+                    $urunIds[] = $urun['ID'];
+                }
+                
+                // Stok miktarlarını hesapla
+                if (!empty($urunIds)) {
+                    $stokMiktarlari = [];
+                    
+                    $stokSql = "SELECT 
+                        KARTID,
+                        SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                        SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+                    FROM 
+                        STK_FIS_HAR
+                    WHERE 
+                        IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
+                    GROUP BY 
+                        KARTID";
+                    
+                    debugEcho("Stok SQL sorgusu:", $stokSql);
+                    
+                    try {
+                        $stokStmt = $db->query($stokSql);
+                        while ($stokRow = $stokStmt->fetch(PDO::FETCH_ASSOC)) {
+                            $stokMiktarlari[$stokRow['KARTID']] = $stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR'];
+                        }
+                        
+                        // Her ürün için stok miktarlarını güncelle
+                        foreach ($urunler as &$urun) {
+                            $urun['GUNCEL_STOK'] = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
+                        }
+                        
+                        debugEcho("Stok miktarları hesaplandı:", $stokMiktarlari);
+                    } catch (PDOException $stokHata) {
+                        debugEcho("Stok miktarı hesaplama hatası: " . $stokHata->getMessage());
+                    }
+                }
+                
+                // Satış fiyatlarını STK_FIYAT tablosundan al
+                try {
+                    $fiyatSql = "SELECT 
+                        STOKID,
+                        FIYAT
+                    FROM 
+                        STK_FIYAT
+                    WHERE 
+                        TIP = 'S' AND STOKID IN (" . implode(',', $urunIds) . ")";
+                    
+                    debugEcho("Fiyat SQL sorgusu:", $fiyatSql);
+                    
+                    try {
+                        $fiyatStmt = $db->query($fiyatSql);
+                        $fiyatlar = [];
+                        
+                        while ($fiyatRow = $fiyatStmt->fetch(PDO::FETCH_ASSOC)) {
+                            $fiyatlar[$fiyatRow['STOKID']] = $fiyatRow['FIYAT'];
+                        }
+                        
+                        // Her ürün için fiyat bilgisini güncelle
+                        foreach ($urunler as &$urun) {
+                            $urun['GUNCEL_FIYAT'] = isset($fiyatlar[$urun['ID']]) ? $fiyatlar[$urun['ID']] : $urun['SATIS_FIYAT'];
+                        }
+                        
+                        debugEcho("Satış fiyatları alındı:", $fiyatlar);
+                    } catch (PDOException $fiyatHata) {
+                        debugEcho("Fiyat alma hatası: " . $fiyatHata->getMessage());
+                    }
+                } catch (Exception $e) {
+                    debugEcho("Fiyat işlem hatası: " . $e->getMessage());
+                }
+            } catch (Exception $e) {
+                debugEcho("Stok miktarı işlem hatası: " . $e->getMessage());
+            }
+        }
         
     } catch (PDOException $e) {
         $error = "Veritabanı hatası: " . $e->getMessage();
+        debugEcho("HATA: " . $error);
     }
 }
 // Detaylı arama
 elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
     !empty($stok_kodu) || 
     !empty($urun_adi) || 
-    !empty($kategori_id) || 
-    !empty($marka) || 
-    !empty($model) || 
+    !empty($tip) || 
+    !empty($birim) || 
     $min_stok !== null || 
     $max_stok !== null || 
     $min_fiyat !== null || 
@@ -304,78 +269,183 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
     $filtreSorgusu = true;
     
     try {
-        // SQL sorgusu oluştur
-        $sql = "SELECT p.*, c.name as category_name 
-                FROM products p 
-                LEFT JOIN product_categories c ON p.category_id = c.id 
-                WHERE 1=1";
+        debugEcho("Detaylı arama işlemi başlatılıyor...");
+        
+        // SQL sorgusunu oluştur
+        $whereConditions = [];
         $params = [];
         
-        // Filtreleri ekle
         if (!empty($stok_kodu)) {
-            $sql .= " AND p.code LIKE :stok_kodu";
-            $params[':stok_kodu'] = '%' . $stok_kodu . '%';
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($stok_kodu) . '%';
+            $whereConditions[] = sqlTurkceUpper("KOD") . " LIKE ?";
+            $params[] = $search_param;
         }
         
         if (!empty($urun_adi)) {
-            $sql .= " AND p.name LIKE :urun_adi";
-            $params[':urun_adi'] = '%' . $urun_adi . '%';
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($urun_adi) . '%';
+            $whereConditions[] = sqlTurkceUpper("ADI") . " LIKE ?";
+            $params[] = $search_param;
         }
         
-        if (!empty($kategori_id)) {
-            $sql .= " AND p.category_id = :kategori_id";
-            $params[':kategori_id'] = $kategori_id;
+        if (!empty($tip)) {
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($tip) . '%';
+            $whereConditions[] = sqlTurkceUpper("TIP") . " LIKE ?";
+            $params[] = $search_param;
         }
         
-        if (!empty($marka)) {
-            $sql .= " AND p.brand LIKE :marka";
-            $params[':marka'] = '%' . $marka . '%';
-        }
-        
-        if (!empty($model)) {
-            $sql .= " AND p.model LIKE :model";
-            $params[':model'] = '%' . $model . '%';
+        if (!empty($birim)) {
+            // Türkçe karakterleri dönüştür ve büyük harfe çevir
+            $search_param = '%' . searchTermPrepare($birim) . '%';
+            $whereConditions[] = sqlTurkceUpper("BIRIM") . " LIKE ?";
+            $params[] = $search_param;
         }
         
         if ($min_stok !== null) {
-            $sql .= " AND p.current_stock >= :min_stok";
-            $params[':min_stok'] = $min_stok;
+            $whereConditions[] = "MIKTAR >= ?";
+            $params[] = $min_stok;
         }
         
         if ($max_stok !== null) {
-            $sql .= " AND p.current_stock <= :max_stok";
-            $params[':max_stok'] = $max_stok;
+            $whereConditions[] = "MIKTAR <= ?";
+            $params[] = $max_stok;
         }
         
         if ($min_fiyat !== null) {
-            $sql .= " AND p.sale_price >= :min_fiyat";
-            $params[':min_fiyat'] = $min_fiyat;
+            $whereConditions[] = "SATIS_FIYAT >= ?";
+            $params[] = $min_fiyat;
         }
         
         if ($max_fiyat !== null) {
-            $sql .= " AND p.sale_price <= :max_fiyat";
-            $params[':max_fiyat'] = $max_fiyat;
+            $whereConditions[] = "SATIS_FIYAT <= ?";
+            $params[] = $max_fiyat;
         }
         
         if (!empty($durum)) {
-            $sql .= " AND p.status = :durum";
-            $params[':durum'] = $durum;
+            $whereConditions[] = "DURUM = ?";
+            $params[] = $durum;
         }
         
-        // Sıralama ekle
-        $sql .= " ORDER BY p.id DESC";
+        // WHERE koşulunu oluştur
+        $whereClause = "";
+        if (!empty($whereConditions)) {
+            $whereClause = "WHERE " . implode(" AND ", $whereConditions);
+        }
         
-        // Sorguyu hazırla ve çalıştır
+        debugEcho("Oluşturulan WHERE koşulu:", $whereClause);
+        debugEcho("Hazırlanan parametreler:", $params);
+        
+        // Artık LIMIT ve OFFSET doğrudan SQL sorgusuna eklendiğinden
+        // sadece normal parametreleri kullanıyoruz
+        $countParams = $params;
+        
+        // Toplam kayıt sayısını al
+        $countSql = "SELECT COUNT(*) FROM stok $whereClause";
+        debugEcho("Sayım SQL sorgusu:", $countSql);
+        
+        $countStmt = $db->prepare($countSql);
+        $countStmt->execute($countParams);
+        debugEcho("Execute parametreleri (COUNT):", $countParams);
+        
+        $toplam_kayit = $countStmt->fetchColumn();
+        debugEcho("Toplam kayıt sayısı: " . $toplam_kayit);
+        
+        // Ana sorguyu hazırla
+        $sql = "SELECT * FROM stok $whereClause ORDER BY ID DESC LIMIT " . (int)$offset . ", " . (int)$limit;
+        debugEcho("Ana SQL sorgusu:", $sql);
+        
         $stmt = $db->prepare($sql);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        $stmt->execute();
+        $stmt->execute($params);
+        debugEcho("Execute parametreleri:", $params);
         
         $urunler = $stmt->fetchAll();
+        debugEcho("Bulunan ürün sayısı: " . count($urunler));
+        
+        // STK_FIS_HAR tablosundan stok miktarlarını al
+        if (count($urunler) > 0) {
+            try {
+                // Ürün ID'lerini al
+                $urunIds = [];
+                foreach ($urunler as $urun) {
+                    $urunIds[] = $urun['ID'];
+                }
+                
+                // Stok miktarlarını hesapla
+                if (!empty($urunIds)) {
+                    $stokMiktarlari = [];
+                    
+                    $stokSql = "SELECT 
+                        KARTID,
+                        SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                        SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+                    FROM 
+                        STK_FIS_HAR
+                    WHERE 
+                        IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
+                    GROUP BY 
+                        KARTID";
+                    
+                    debugEcho("Stok SQL sorgusu:", $stokSql);
+                    
+                    try {
+                        $stokStmt = $db->query($stokSql);
+                        while ($stokRow = $stokStmt->fetch(PDO::FETCH_ASSOC)) {
+                            $stokMiktarlari[$stokRow['KARTID']] = $stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR'];
+                        }
+                        
+                        // Her ürün için stok miktarlarını güncelle
+                        foreach ($urunler as &$urun) {
+                            $urun['GUNCEL_STOK'] = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
+                        }
+                        
+                        debugEcho("Stok miktarları hesaplandı:", $stokMiktarlari);
+                    } catch (PDOException $stokHata) {
+                        debugEcho("Stok miktarı hesaplama hatası: " . $stokHata->getMessage());
+                    }
+                }
+                
+                // Satış fiyatlarını STK_FIYAT tablosundan al
+                try {
+                    $fiyatSql = "SELECT 
+                        STOKID,
+                        FIYAT
+                    FROM 
+                        STK_FIYAT
+                    WHERE 
+                        TIP = 'S' AND STOKID IN (" . implode(',', $urunIds) . ")";
+                    
+                    debugEcho("Fiyat SQL sorgusu:", $fiyatSql);
+                    
+                    try {
+                        $fiyatStmt = $db->query($fiyatSql);
+                        $fiyatlar = [];
+                        
+                        while ($fiyatRow = $fiyatStmt->fetch(PDO::FETCH_ASSOC)) {
+                            $fiyatlar[$fiyatRow['STOKID']] = $fiyatRow['FIYAT'];
+                        }
+                        
+                        // Her ürün için fiyat bilgisini güncelle
+                        foreach ($urunler as &$urun) {
+                            $urun['GUNCEL_FIYAT'] = isset($fiyatlar[$urun['ID']]) ? $fiyatlar[$urun['ID']] : $urun['SATIS_FIYAT'];
+                        }
+                        
+                        debugEcho("Satış fiyatları alındı:", $fiyatlar);
+                    } catch (PDOException $fiyatHata) {
+                        debugEcho("Fiyat alma hatası: " . $fiyatHata->getMessage());
+                    }
+                } catch (Exception $e) {
+                    debugEcho("Fiyat işlem hatası: " . $e->getMessage());
+                }
+            } catch (Exception $e) {
+                debugEcho("Stok miktarı işlem hatası: " . $e->getMessage());
+            }
+        }
         
     } catch (PDOException $e) {
         $error = "Veritabanı hatası: " . $e->getMessage();
+        debugEcho("HATA: " . $error);
     }
 }
 
@@ -429,12 +499,12 @@ if (isset($error)) {
         <div class="tab-content" id="arama-tabs-content">
             <!-- Hızlı Arama Formu -->
             <div class="tab-pane fade <?php echo ($arama_modu == 'hizli') ? 'show active' : ''; ?>" id="hizli-arama" role="tabpanel" aria-labelledby="hizli-arama-tab">
-                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="get" class="mb-0">
+                <form action="urun_arama.php" method="get" class="mb-0">
                     <input type="hidden" name="arama_modu" value="hizli">
                     <div class="input-group">
                         <input type="text" class="form-control" 
-                               placeholder="Stok kodu, ürün adı, açıklama, marka, model veya kategori..." 
-                               name="arama" value="<?php echo htmlspecialchars($arama); ?>" autofocus>
+                               placeholder="Ürün kodu veya adı ile arama yapın..." 
+                               name="arama" value="<?php echo html_entity_decode(htmlspecialchars($arama)); ?>" autofocus>
                         <button class="btn btn-primary" type="submit">
                             <i class="fas fa-search"></i> Ara
                         </button>
@@ -443,46 +513,29 @@ if (isset($error)) {
                         </a>
                     </div>
                     <small class="form-text text-muted mt-1">
-                        <i class="fas fa-info-circle"></i> Stok kodu, ürün adı, açıklama, marka, model veya kategoride eşleşme arar.
+                        <i class="fas fa-info-circle"></i> Ürün kodu veya adı ile arama yapabilirsiniz.
                     </small>
                 </form>
             </div>
             
             <!-- Detaylı Arama Formu -->
             <div class="tab-pane fade <?php echo ($arama_modu == 'detayli') ? 'show active' : ''; ?>" id="detayli-arama" role="tabpanel" aria-labelledby="detayli-arama-tab">
-                <form action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>" method="get" class="row g-2">
+                <form action="urun_arama.php" method="get" class="row g-2">
                     <input type="hidden" name="arama_modu" value="detayli">
                     
                     <!-- Temel Bilgiler -->
                     <div class="col-md-2">
-                        <input type="text" class="form-control form-control-sm" id="stok_kodu" name="stok_kodu" value="<?php echo htmlspecialchars($stok_kodu); ?>" placeholder="Stok Kodu">
+                        <input type="text" class="form-control form-control-sm" id="stok_kodu" name="stok_kodu" value="<?php echo html_entity_decode(htmlspecialchars($stok_kodu)); ?>" placeholder="Stok Kodu">
                     </div>
                     <div class="col-md-4">
-                        <input type="text" class="form-control form-control-sm" id="urun_adi" name="urun_adi" value="<?php echo htmlspecialchars($urun_adi); ?>" placeholder="Ürün Adı">
+                        <input type="text" class="form-control form-control-sm" id="urun_adi" name="urun_adi" value="<?php echo html_entity_decode(htmlspecialchars($urun_adi)); ?>" placeholder="Ürün Adı">
                     </div>
                     
                     <div class="col-md-2">
-                        <select class="form-select form-select-sm select2" id="kategori_id" name="kategori_id">
-                            <option value="">Kategori</option>
-                            <?php
-                            // Kategorileri listele
-                            try {
-                                $stmt = $db->query("SELECT * FROM product_categories WHERE status = 'active' ORDER BY name");
-                                while ($row = $stmt->fetch()) {
-                                    $selected = ($kategori_id == $row['id']) ? 'selected' : '';
-                                    echo '<option value="' . $row['id'] . '" ' . $selected . '>' . htmlspecialchars($row['name']) . '</option>';
-                                }
-                            } catch (PDOException $e) {
-                                // Hata durumunda
-                            }
-                            ?>
-                        </select>
+                        <input type="text" class="form-control form-control-sm" id="tip" name="tip" value="<?php echo html_entity_decode(htmlspecialchars($tip)); ?>" placeholder="Tip">
                     </div>
                     <div class="col-md-2">
-                        <input type="text" class="form-control form-control-sm" id="marka" name="marka" value="<?php echo htmlspecialchars($marka); ?>" placeholder="Marka">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="text" class="form-control form-control-sm" id="model" name="model" value="<?php echo htmlspecialchars($model); ?>" placeholder="Model">
+                        <input type="text" class="form-control form-control-sm" id="birim" name="birim" value="<?php echo html_entity_decode(htmlspecialchars($birim)); ?>" placeholder="Birim">
                     </div>
                     
                     <!-- İkinci Satır -->
@@ -503,8 +556,8 @@ if (isset($error)) {
                     <div class="col-md-2">
                         <select class="form-select form-select-sm" id="durum" name="durum">
                             <option value="">Durum</option>
-                            <option value="active" <?php echo ($durum == 'active') ? 'selected' : ''; ?>>Aktif</option>
-                            <option value="passive" <?php echo ($durum == 'passive') ? 'selected' : ''; ?>>Pasif</option>
+                            <option value="1" <?php echo ($durum == '1') ? 'selected' : ''; ?>>Aktif</option>
+                            <option value="0" <?php echo ($durum == '0') ? 'selected' : ''; ?>>Pasif</option>
                         </select>
                     </div>
                     
@@ -542,15 +595,12 @@ if (isset($error)) {
         <?php if (count($urunler) > 0): ?>
             <div class="table-responsive">
                 <?php
-                // Ürünleri gruplarına göre düzenle
+                // Ürünleri gruplarına göre düzenle - Stok tablosunda grup olmadığından basitleştirilmiş
+                debugEcho("Ürünleri gruplama işlemi başlatılıyor...");
                 $groupedProducts = [];
-                foreach ($urunler as $urun) {
-                    $groupId = isset($urun['group_id']) && $urun['group_id'] > 0 ? $urun['group_id'] : 'single_' . $urun['id'];
-                    if (!isset($groupedProducts[$groupId])) {
-                        $groupedProducts[$groupId] = [];
-                    }
-                    $groupedProducts[$groupId][] = $urun;
-                }
+                $groupId = 'all_products'; // Tek bir grup ID'si kullanıyoruz
+                $groupedProducts[$groupId] = $urunler;
+                debugEcho("Ürünler başarıyla gruplandı. Tek grup: " . $groupId . ", Ürün sayısı: " . count($urunler));
                 ?>
                 
                 <style>
@@ -560,24 +610,11 @@ if (isset($error)) {
                         margin-bottom: 10px;
                         overflow: hidden;
                     }
-                    .product-group-title {
-                        background-color: #f8f9fa;
-                        padding: 5px 10px;
-                        font-weight: bold;
-                        border-bottom: 1px solid #ddd;
-                        font-size: 0.9rem;
-                    }
                     .product-group-content {
                         padding: 0;
                     }
                     .product-group-content table {
                         margin-bottom: 0;
-                    }
-                    .product-group .main-product {
-                        background-color: #e6f2ff !important;
-                    }
-                    .product-group .alternative-product {
-                        background-color: #fff3cd !important;
                     }
                     .product-group table th {
                         position: sticky;
@@ -601,40 +638,16 @@ if (isset($error)) {
                 </style>
                 
                 <?php foreach ($groupedProducts as $groupId => $products): ?>
+                    <?php debugEcho("Gösterilen grup: " . $groupId . ", Ürün sayısı: " . count($products)); ?>
                     <div class="product-group">
-                        <?php
-                        // İlk ürünün ana ürün olup olmadığını kontrol et
-                        $hasMainProduct = false;
-                        $mainProductName = '';
-                        
-                        foreach ($products as $product) {
-                            if (isset($product['is_muadil']) && $product['is_muadil'] == 0) {
-                                $hasMainProduct = true;
-                                // HTML özel karakterlerini düzgün escape et
-                                $mainProductName = $product['name'];
-                                break;
-                            }
-                        }
-                        ?>
-                        
-                        <?php if (count($products) > 1 || (strpos($groupId, 'single_') === false)): ?>
-                        <div class="product-group-title">
-                            <?php if ($hasMainProduct): ?>
-                                <i class="fas fa-minus"></i> <?php echo html_entity_decode(htmlspecialchars_decode($mainProductName)); ?> ve Muadil Ürünleri
-                            <?php else: ?>
-                                <i class="fas fa-minus"></i> Muadil Ürün Grubu
-                            <?php endif; ?>
-                        </div>
-                        <?php endif; ?>
-                        
                         <div class="product-group-content">
                             <table class="table table-bordered table-hover table-compact" width="100%" cellspacing="0">
                                 <thead>
                                     <tr>
                                         <th>Stok Kodu</th>
                                         <th>Ürün Adı</th>
-                                        <th>Kategori</th>
-                                        <th>Marka/Model</th>
+                                        <th>Tip</th>
+                                        <th>Birim</th>
                                         <th class="text-end">Stok</th>
                                         <th class="text-end">Satış Fiyatı</th>
                                         <th>Durum</th>
@@ -642,52 +655,67 @@ if (isset($error)) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($products as $urun): 
-                                        // Ürünün sınıfını belirle (ana ürün veya muadil)
-                                        $row_class = '';
-                                        $badge_text = '';
-                                        
-                                        if (isset($urun['is_muadil']) && $urun['is_muadil'] == 0) {
-                                            $row_class = 'main-product';
-                                        } else if (isset($urun['is_muadil']) && $urun['is_muadil'] == 1) {
-                                            $row_class = 'alternative-product';
-                                            $badge_text = '<span class="badge bg-warning text-dark ms-1">Muadil</span>';
-                                        } else if (isset($urun['is_alternative']) && $urun['is_alternative'] == 1) {
-                                            $row_class = 'alternative-product';
-                                            $badge_text = '<span class="badge bg-warning text-dark ms-1">Muadil</span>';
+                                    <?php foreach ($products as $index => $urun): ?>
+                                        <?php 
+                                        if ($index == 0) {
+                                            debugEcho("İlk ürün bilgileri:", $urun);
                                         }
-                                    ?>
-                                        <tr class="<?php echo $row_class; ?>">
-                                            <td><?php echo htmlspecialchars($urun['code']); ?></td>
+                                        ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($urun['KOD']); ?></td>
                                             <td>
-                                                <a href="urun_detay.php?id=<?php echo $urun['id']; ?>">
-                                                    <?php echo html_entity_decode(htmlspecialchars_decode($urun['name'])); ?>
+                                                <a href="urun_detay.php?id=<?php echo $urun['ID']; ?>">
+                                                    <?php echo html_entity_decode(htmlspecialchars($urun['ADI'])); ?>
                                                 </a>
-                                                <?php echo $badge_text; ?>
                                             </td>
-                                            <td><?php echo htmlspecialchars($urun['category_name'] ?? ''); ?></td>
-                                            <td>
-                                                <?php if (!empty($urun['brand'])): ?>
-                                                    <?php echo htmlspecialchars($urun['brand']); ?>
-                                                    <?php if (!empty($urun['model'])): ?>
-                                                        / <?php echo htmlspecialchars($urun['model']); ?>
+                                            <td><?php echo isset($urun['TIP']) ? htmlspecialchars($urun['TIP']) : ''; ?></td>
+                                            <td><?php echo isset($urun['BIRIM']) ? htmlspecialchars($urun['BIRIM']) : '-'; ?></td>
+                                            <td class="text-end">
+                                                <?php if (isset($urun['GUNCEL_STOK'])): ?>
+                                                    <?php
+                                                    $guncel_stok = (float)$urun['GUNCEL_STOK'];
+                                                    $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
+                                                    
+                                                    if ($sistem_stok != $guncel_stok):
+                                                    ?>
+                                                        <span class="text-success"><?php echo number_format($guncel_stok, 2, ',', '.'); ?></span>
+                                                        <br><small class="text-muted">Sistem: <?php echo number_format($sistem_stok, 2, ',', '.'); ?></small>
+                                                    <?php else: ?>
+                                                        <?php echo number_format($guncel_stok, 2, ',', '.'); ?>
                                                     <?php endif; ?>
+                                                <?php else: ?>
+                                                    <?php echo isset($urun['MIKTAR']) ? number_format($urun['MIKTAR'], 2, ',', '.') : '0,00'; ?>
                                                 <?php endif; ?>
                                             </td>
-                                            <td class="text-end"><?php echo number_format($urun['current_stock'], 2, ',', '.'); ?> <?php echo htmlspecialchars($urun['unit']); ?></td>
-                                            <td class="text-end">₺<?php echo number_format($urun['sale_price'], 2, ',', '.'); ?></td>
+                                            <td class="text-end">
+                                                <?php if (isset($urun['GUNCEL_FIYAT'])): ?>
+                                                    <?php
+                                                    $guncel_fiyat = (float)$urun['GUNCEL_FIYAT'];
+                                                    $sistem_fiyat = isset($urun['SATIS_FIYAT']) ? (float)$urun['SATIS_FIYAT'] : 0;
+                                                    
+                                                    if ($sistem_fiyat != $guncel_fiyat):
+                                                    ?>
+                                                        <span class="text-primary">₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?></span>
+                                                        <br><small class="text-muted">Sistem: ₺<?php echo number_format($sistem_fiyat, 2, ',', '.'); ?></small>
+                                                    <?php else: ?>
+                                                        ₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?>
+                                                    <?php endif; ?>
+                                                <?php else: ?>
+                                                    ₺<?php echo isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00'; ?>
+                                                <?php endif; ?>
+                                            </td>
                                             <td>
-                                                <?php if ($urun['status'] == 'active'): ?>
+                                                <?php if ($urun['DURUM'] == 1): ?>
                                                     <span class="badge bg-success">Aktif</span>
-                                                <?php elseif ($urun['status'] == 'passive'): ?>
+                                                <?php elseif ($urun['DURUM'] == 0): ?>
                                                     <span class="badge bg-danger">Pasif</span>
                                                 <?php endif; ?>
                                             </td>
                                             <td class="text-center">
                                                 <div class="btn-group">
-                                                    <a href="urun_detay.php?id=<?php echo $urun['id']; ?>" class="btn btn-sm btn-info" title="Detay"><i class="fas fa-eye"></i></a>
-                                                    <a href="urun_duzenle.php?id=<?php echo $urun['id']; ?>" class="btn btn-sm btn-primary" title="Düzenle"><i class="fas fa-edit"></i></a>
-                                                    <a href="stok_hareketi_ekle.php?urun_id=<?php echo $urun['id']; ?>" class="btn btn-sm btn-success" title="Stok Hareketi Ekle"><i class="fas fa-plus"></i></a>
+                                                    <a href="urun_detay.php?id=<?php echo $urun['ID']; ?>" class="btn btn-sm btn-info" title="Detay"><i class="fas fa-eye"></i></a>
+                                                    <a href="urun_duzenle.php?id=<?php echo $urun['ID']; ?>" class="btn btn-sm btn-primary" title="Düzenle"><i class="fas fa-edit"></i></a>
+                                                    <a href="stok_hareketi_ekle.php?urun_id=<?php echo $urun['ID']; ?>" class="btn btn-sm btn-success" title="Stok Hareketi Ekle"><i class="fas fa-plus"></i></a>
                                                 </div>
                                             </td>
                                         </tr>
@@ -697,6 +725,24 @@ if (isset($error)) {
                         </div>
                     </div>
                 <?php endforeach; ?>
+                
+                <?php 
+                // Sayfalama bilgileri
+                $totalPages = ceil($toplam_kayit / $limit);
+                $nextPage = $page + 1;
+                
+                // Daha fazla sayfa varsa "Daha Fazla Yükle" butonu göster
+                if ($page < $totalPages): 
+                    $params = $_GET;
+                    $params['page'] = $nextPage;
+                    $queryString = http_build_query($params);
+                ?>
+                <div class="mt-3 text-center">
+                    <a href="?<?php echo $queryString; ?>" class="btn btn-outline-primary">
+                        <i class="fas fa-sync"></i> Daha Fazla Yükle (<?php echo ($offset + count($urunler)); ?>/<?php echo $toplam_kayit; ?>)
+                    </a>
+                </div>
+                <?php endif; ?>
             </div>
         <?php else: ?>
             <div class="alert alert-info">
@@ -763,78 +809,108 @@ if (isset($error)) {
     
     // Excel'e aktarma fonksiyonu - Tüm arama sonuçlarını toplar
     function exportSearchResults() {
-        // Tüm grupları birleştirerek bir tablo oluştur
-        let combinedTable = document.createElement('table');
-        combinedTable.id = 'combined_search_results';
-        combinedTable.style.display = 'none';
-        document.body.appendChild(combinedTable);
-        
-        // Başlık satırını ekle
-        let headerRow = document.createElement('tr');
-        ['Stok Kodu', 'Ürün Adı', 'Kategori', 'Marka/Model', 'Stok', 'Satış Fiyatı', 'Durum'].forEach(header => {
-            let th = document.createElement('th');
-            th.textContent = header;
-            headerRow.appendChild(th);
-        });
-        
-        let thead = document.createElement('thead');
-        thead.appendChild(headerRow);
-        combinedTable.appendChild(thead);
-        
-        // Tüm gruplardaki verileri bir tbody'e ekle
-        let tbody = document.createElement('tbody');
-        
-        const productGroups = document.querySelectorAll('.product-group');
-        productGroups.forEach(group => {
-            const rows = group.querySelectorAll('tbody tr');
-            rows.forEach(row => {
-                let newRow = document.createElement('tr');
-                
-                // İşlem sütununu hariç tut (son sütun)
-                const cells = row.querySelectorAll('td:not(:last-child)');
-                cells.forEach(cell => {
-                    let newCell = document.createElement('td');
-                    newCell.innerHTML = cell.innerHTML.replace(/<\/?a[^>]*>/g, ''); // Linkleri kaldır
-                    newRow.appendChild(newCell);
-                });
-                
-                tbody.appendChild(newRow);
+        try {
+            // Tüm grupları birleştirerek bir tablo oluştur
+            let combinedTable = document.createElement('table');
+            combinedTable.id = 'combined_search_results';
+            combinedTable.style.display = 'none';
+            document.body.appendChild(combinedTable);
+            
+            console.log('Excel tablosu oluşturuldu');
+            
+            // Başlık satırını ekle
+            let headerRow = document.createElement('tr');
+            ['Stok Kodu', 'Ürün Adı', 'Tip', 'Birim', 'Stok', 'Satış Fiyatı', 'Durum'].forEach(header => {
+                let th = document.createElement('th');
+                th.textContent = header;
+                headerRow.appendChild(th);
             });
-        });
-        
-        combinedTable.appendChild(tbody);
-        
-        // Excel'e aktar
-        exportTableToExcel('combined_search_results', 'urun_arama_sonuclari');
-        
-        // Geçici tabloyu temizle
-        document.body.removeChild(combinedTable);
+            
+            let thead = document.createElement('thead');
+            thead.appendChild(headerRow);
+            combinedTable.appendChild(thead);
+            
+            console.log('Başlık satırı eklendi');
+            
+            // Tüm gruplardaki verileri bir tbody'e ekle
+            let tbody = document.createElement('tbody');
+            
+            const productGroups = document.querySelectorAll('.product-group');
+            console.log(`${productGroups.length} adet ürün grubu bulundu`);
+            
+            productGroups.forEach((group, groupIndex) => {
+                const rows = group.querySelectorAll('tbody tr');
+                console.log(`Grup ${groupIndex}: ${rows.length} satır içeriyor`);
+                
+                rows.forEach((row, rowIndex) => {
+                    let newRow = document.createElement('tr');
+                    
+                    // İşlem sütununu hariç tut (son sütun)
+                    const cells = row.querySelectorAll('td:not(:last-child)');
+                    cells.forEach((cell, cellIndex) => {
+                        let newCell = document.createElement('td');
+                        newCell.innerHTML = cell.innerHTML.replace(/<\/?a[^>]*>/g, ''); // Linkleri kaldır
+                        newRow.appendChild(newCell);
+                    });
+                    
+                    tbody.appendChild(newRow);
+                    if (rowIndex === 0) {
+                        console.log(`İlk satır ${cells.length} hücre içeriyor`);
+                    }
+                });
+            });
+            
+            combinedTable.appendChild(tbody);
+            console.log('Tablo verileri eklendi');
+            
+            // Excel'e aktar
+            exportTableToExcel('combined_search_results', 'urun_arama_sonuclari');
+            
+            // Geçici tabloyu temizle
+            document.body.removeChild(combinedTable);
+            console.log('Excel aktarımı tamamlandı');
+        } catch (error) {
+            console.error('Excel aktarma hatası:', error);
+            alert('Excel aktarma sırasında bir hata oluştu: ' + error.message);
+        }
     }
     
     // Excel dönüştürme temel fonksiyonu
     function exportTableToExcel(tableID, filename = '') {
-        var downloadLink;
-        var dataType = 'application/vnd.ms-excel';
-        var tableSelect = document.getElementById(tableID);
-        var tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
-        
-        // Dosya adını oluştur
-        filename = filename ? filename + '.xls' : 'excel_data.xls';
-        
-        // Link oluştur ve indir
-        downloadLink = document.createElement("a");
-        document.body.appendChild(downloadLink);
-        
-        if(navigator.msSaveOrOpenBlob) {
-            var blob = new Blob(['\ufeff', tableHTML], {
-                type: dataType
-            });
-            navigator.msSaveOrOpenBlob(blob, filename);
-        } else {
-            // Base64 formatına dönüştür
-            downloadLink.href = 'data:' + dataType + ', ' + tableHTML;
-            downloadLink.download = filename;
-            downloadLink.click();
+        try {
+            var downloadLink;
+            var dataType = 'application/vnd.ms-excel';
+            var tableSelect = document.getElementById(tableID);
+            
+            if (!tableSelect) {
+                throw new Error(`'${tableID}' ID'sine sahip tablo bulunamadı`);
+            }
+            
+            var tableHTML = tableSelect.outerHTML.replace(/ /g, '%20');
+            
+            // Dosya adını oluştur
+            filename = filename ? filename + '.xls' : 'excel_data.xls';
+            
+            // Link oluştur ve indir
+            downloadLink = document.createElement("a");
+            document.body.appendChild(downloadLink);
+            
+            if(navigator.msSaveOrOpenBlob) {
+                var blob = new Blob(['\ufeff', tableHTML], {
+                    type: dataType
+                });
+                navigator.msSaveOrOpenBlob(blob, filename);
+            } else {
+                // Base64 formatına dönüştür
+                downloadLink.href = 'data:' + dataType + ', ' + tableHTML;
+                downloadLink.download = filename;
+                downloadLink.click();
+            }
+            
+            console.log('Excel indirme bağlantısı oluşturuldu: ' + filename);
+        } catch (error) {
+            console.error('Excel dönüştürme hatası:', error);
+            alert('Excel dönüştürme sırasında bir hata oluştu: ' + error.message);
         }
     }
 </script>

@@ -24,7 +24,7 @@ $pageTitle = "Stok Yönetimi";
 // Stok sayısını al
 $stokSayisi = 0;
 try {
-    $stmt = $db->query("SELECT COUNT(*) FROM products");
+    $stmt = $db->query("SELECT COUNT(*) FROM stok");
     $stokSayisi = $stmt->fetchColumn();
 } catch (PDOException $e) {
     // Hata durumunda
@@ -34,7 +34,7 @@ try {
 // Kritik stok sayısını al
 $kritikStokSayisi = 0;
 try {
-    $stmt = $db->query("SELECT COUNT(*) FROM products WHERE current_stock <= min_stock AND status = 'active'");
+    $stmt = $db->query("SELECT COUNT(*) FROM stok WHERE current_stock <= min_stock AND status = 'active'");
     $kritikStokSayisi = $stmt->fetchColumn();
 } catch (PDOException $e) {
     // Hata durumunda
@@ -44,7 +44,7 @@ try {
 // Toplam stok değerini al
 $toplamStokDegeri = 0;
 try {
-    $stmt = $db->query("SELECT SUM(current_stock * purchase_price) AS toplam_deger FROM products WHERE status = 'active'");
+    $stmt = $db->query("SELECT SUM(current_stock * purchase_price) AS toplam_deger FROM stok WHERE status = 'active'");
     $result = $stmt->fetch();
     $toplamStokDegeri = $result['toplam_deger'] ?? 0;
 } catch (PDOException $e) {
@@ -55,7 +55,7 @@ try {
 // Son eklenen ürünleri al
 $sonEklenenUrunler = [];
 try {
-    $stmt = $db->query("SELECT * FROM products ORDER BY created_at DESC LIMIT 5");
+    $stmt = $db->query("SELECT * FROM stok ORDER BY created_at DESC LIMIT 5");
     $sonEklenenUrunler = $stmt->fetchAll();
 } catch (PDOException $e) {
     // Hata durumunda
@@ -65,7 +65,7 @@ try {
 // Kritik stok seviyesindeki ürünleri al
 $kritikStokUrunler = [];
 try {
-    $stmt = $db->query("SELECT * FROM products WHERE current_stock <= min_stock AND status = 'active' ORDER BY current_stock ASC LIMIT 5");
+    $stmt = $db->query("SELECT * FROM stok WHERE current_stock <= min_stock AND status = 'active' ORDER BY current_stock ASC LIMIT 5");
     $kritikStokUrunler = $stmt->fetchAll();
 } catch (PDOException $e) {
     // Hata durumunda
@@ -81,11 +81,14 @@ include_once '../../includes/header.php';
     <h1 class="h2">Stok Yönetimi</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
-            <a href="urun_ekle.php" class="btn btn-sm btn-outline-primary">
-                <i class="fas fa-plus"></i> Yeni Ürün Ekle
-            </a>
-            <a href="urun_arama.php" class="btn btn-sm btn-outline-info">
+            <a href="urun_arama.php" class="btn btn-sm btn-outline-primary">
                 <i class="fas fa-search"></i> Detaylı Arama
+            </a>
+            <a href="urun_ekle.php" class="btn btn-sm btn-outline-success">
+                <i class="fas fa-plus"></i> Yeni Ürün
+            </a>
+            <a href="import_oem_from_stok.php" class="btn btn-sm btn-outline-info">
+                <i class="fas fa-sync"></i> OEM Verilerini İçe Aktar
             </a>
             <a href="stok_hareketleri.php" class="btn btn-sm btn-outline-secondary">
                 <i class="fas fa-exchange-alt"></i> Stok Hareketleri
@@ -193,6 +196,21 @@ include_once '../../includes/header.php';
         </div>
     </div>
     <div class="card-body">
+        <form action="" method="get" class="mb-4" id="searchForm">
+            <div class="input-group">
+                <input type="text" class="form-control" name="q" placeholder="Ürün kodu veya adı ile arama yapın..." 
+                    value="<?php echo isset($_GET['q']) ? htmlspecialchars($_GET['q']) : ''; ?>">
+                <button class="btn btn-primary" type="submit">
+                    <i class="fas fa-search"></i> Ara
+                </button>
+                <?php if(isset($_GET['q'])): ?>
+                <a href="index.php" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Temizle
+                </a>
+                <?php endif; ?>
+            </div>
+        </form>
+        
         <div class="table-responsive">
             <table class="table table-bordered" id="productTable" width="100%" cellspacing="0">
                 <thead>
@@ -209,48 +227,146 @@ include_once '../../includes/header.php';
                         <th>İşlemler</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="productTableBody">
                     <?php 
                     try {
-                        $sql = "SELECT p.*, c.name as category_name 
-                                FROM products p 
-                                LEFT JOIN product_categories c ON p.category_id = c.id 
-                                ORDER BY p.id DESC";
-                        $stmt = $db->query($sql);
-                        $stmt->execute();
+                        // Arama yapılmış mı kontrol et
+                        $search = isset($_GET['q']) && !empty($_GET['q']) ? $_GET['q'] : null;
                         
-                        while ($urun = $stmt->fetch()): ?>
-                        <tr>
-                            <td class="text-center">
-                                <input type="checkbox" class="select-item" value="<?php echo $urun['id']; ?>">
-                            </td>
-                            <td><?php echo htmlspecialchars($urun['code']); ?></td>
-                            <td><a href="urun_detay.php?id=<?php echo $urun['id']; ?>"><?php echo displayHtml($urun['name']); ?></a></td>
-                            <td><?php echo htmlspecialchars($urun['category_name'] ?? ''); ?></td>
-                            <td><?php echo htmlspecialchars($urun['unit']); ?></td>
-                            <td class="text-end"><?php echo number_format($urun['purchase_price'], 2, ',', '.'); ?> TL</td>
-                            <td class="text-end"><?php echo number_format($urun['sale_price'], 2, ',', '.'); ?> TL</td>
-                            <td class="text-center"><?php echo number_format($urun['current_stock'], 2, ',', '.'); ?></td>
-                            <td class="text-center">
-                                <span class="badge bg-<?php echo ($urun['status'] == 'active') ? 'success' : 'danger'; ?>">
-                                    <?php echo ($urun['status'] == 'active') ? 'Aktif' : 'Pasif'; ?>
-                                </span>
-                            </td>
-                            <td class="text-center">
-                                <div class="btn-group">
-                                    <a href="urun_detay.php?id=<?php echo $urun['id']; ?>" class="btn btn-sm btn-info">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
-                                    <a href="urun_duzenle.php?id=<?php echo $urun['id']; ?>" class="btn btn-sm btn-primary">
-                                        <i class="fas fa-edit"></i>
-                                    </a>
-                                    <button type="button" class="btn btn-sm btn-danger delete-btn" data-id="<?php echo $urun['id']; ?>" data-name="<?php echo htmlspecialchars($urun['name']); ?>">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endwhile;
+                        // Arama yoksa bilgi mesajı göster
+                        if ($search === null) {
+                            echo '<tr><td colspan="10" class="text-center">Ürün görmek için lütfen arama yapın</td></tr>';
+                        } else {
+                            // Sayfa parametresini al
+                            $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+                            $limit = 100; // Her sayfada 100 ürün
+                            $offset = ($page - 1) * $limit;
+                            
+                            // SQL sorgusu oluştur - ürün kodu veya adı ile filtreleme
+                            $sql = "SELECT * FROM stok WHERE 
+                                    (KOD LIKE :search OR ADI LIKE :search)
+                                    ORDER BY ID DESC LIMIT :limit OFFSET :offset";
+                            
+                            $stmt = $db->prepare($sql);
+                            $stmt->bindValue(':search', '%' . $search . '%', PDO::PARAM_STR);
+                            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+                            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+                            $stmt->execute();
+                            
+                            // Toplam kayıt sayısını al (sayfalama için)
+                            $countSql = "SELECT COUNT(*) FROM stok WHERE 
+                                        (KOD LIKE :search OR ADI LIKE :search)";
+                            $countStmt = $db->prepare($countSql);
+                            $countStmt->bindValue(':search', '%' . $search . '%', PDO::PARAM_STR);
+                            $countStmt->execute();
+                            $totalRecords = $countStmt->fetchColumn();
+                            
+                            // Bulunan kayıt yoksa
+                            if ($totalRecords == 0) {
+                                echo '<tr><td colspan="10" class="text-center">Aramanıza uygun ürün bulunamadı</td></tr>';
+                            } else {
+                                // STK_FIS_HAR tablosundan stok miktarlarını al
+                                try {
+                                    // Her ürün için güncel stok miktarını hesapla
+                                    $stokMiktarlari = [];
+                                    
+                                    // Ürün ID'lerini al
+                                    $urunIds = [];
+                                    $stmt_urunler = $stmt->fetchAll();
+                                    foreach ($stmt_urunler as $urun) {
+                                        $urunIds[] = $urun['ID'];
+                                    }
+                                    
+                                    if (!empty($urunIds)) {
+                                        // Stok hareketlerinden miktarları hesapla
+                                        $stokSql = "SELECT 
+                                            KARTID,
+                                            SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                                            SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+                                        FROM 
+                                            STK_FIS_HAR
+                                        WHERE 
+                                            IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
+                                        GROUP BY 
+                                            KARTID";
+                                        
+                                        try {
+                                            $stokStmt = $db->query($stokSql);
+                                            while ($stokRow = $stokStmt->fetch()) {
+                                                $stokMiktarlari[$stokRow['KARTID']] = $stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR'];
+                                            }
+                                        } catch (PDOException $stokHata) {
+                                            echo '<tr><td colspan="10" class="text-center text-warning">Stok miktarları hesaplanırken hata oluştu: ' . $stokHata->getMessage() . '</td></tr>';
+                                        }
+                                    }
+                                    
+                                    // Stok tablosundan temel bilgileri göster, ama gerçek stok miktarları için STK_FIS_HAR tablosunu kullan
+                                    foreach ($stmt_urunler as $urun) {
+                                        $guncel_stok = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
+                                        ?>
+                                        <tr>
+                                            <td class="text-center">
+                                                <input type="checkbox" class="select-item" value="<?php echo $urun['ID']; ?>">
+                                            </td>
+                                            <td><?php echo htmlspecialchars($urun['KOD']); ?></td>
+                                            <td><a href="urun_detay.php?id=<?php echo $urun['ID']; ?>"><?php echo htmlspecialchars($urun['ADI']); ?></a></td>
+                                            <td><?php echo isset($urun['TIP']) ? htmlspecialchars($urun['TIP']) : ''; ?></td>
+                                            <td><?php echo isset($urun['BIRIM']) ? htmlspecialchars($urun['BIRIM']) : '-'; ?></td>
+                                            <td class="text-end"><?php echo isset($urun['ALIS_FIYAT']) ? number_format($urun['ALIS_FIYAT'], 2, ',', '.') : '0,00'; ?> TL</td>
+                                            <td class="text-end"><?php echo isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00'; ?> TL</td>
+                                            <td class="text-center">
+                                                <?php 
+                                                // İki stok bilgisini karşılaştır ve uyarı göster
+                                                $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
+                                                if ($sistem_stok != $guncel_stok) {
+                                                    echo '<span class="text-success">' . number_format($guncel_stok, 2, ',', '.') . '</span>';
+                                                    echo '<br><small class="text-muted">Sistem: ' . number_format($sistem_stok, 2, ',', '.') . '</small>';
+                                                } else {
+                                                    echo number_format($guncel_stok, 2, ',', '.');
+                                                }
+                                                ?>
+                                            </td>
+                                            <td class="text-center">
+                                                <span class="badge bg-<?php echo ($urun['DURUM'] == 1) ? 'success' : 'danger'; ?>">
+                                                    <?php echo ($urun['DURUM'] == 1) ? 'Aktif' : 'Pasif'; ?>
+                                                </span>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="btn-group">
+                                                    <a href="urun_detay.php?id=<?php echo $urun['ID']; ?>" class="btn btn-sm btn-info">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                    <a href="urun_duzenle.php?id=<?php echo $urun['ID']; ?>" class="btn btn-sm btn-primary">
+                                                        <i class="fas fa-edit"></i>
+                                                    </a>
+                                                    <button type="button" class="btn btn-sm btn-danger delete-btn" data-id="<?php echo $urun['ID']; ?>" data-name="<?php echo htmlspecialchars($urun['ADI']); ?>">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <?php
+                                    }
+                                    
+                                } catch (PDOException $stokHata) {
+                                    echo '<tr><td colspan="10" class="text-center text-danger">Stok bilgileri alınırken hata oluştu: ' . $stokHata->getMessage() . '</td></tr>';
+                                }
+                                
+                                // Sayfalama bilgileri
+                                $totalPages = ceil($totalRecords / $limit);
+                                $nextPage = $page + 1;
+                                
+                                // Daha fazla sayfa varsa "Daha Fazla Yükle" butonu göster
+                                if ($page < $totalPages) {
+                                    echo '<tr id="loadMoreRow"><td colspan="10" class="text-center">
+                                        <button type="button" id="loadMoreBtn" class="btn btn-outline-primary btn-sm mt-2" 
+                                                data-page="' . $nextPage . '" data-search="' . htmlspecialchars($search) . '">
+                                            <i class="fas fa-sync"></i> Daha Fazla Yükle (' . $offset . '/' . $totalRecords . ')
+                                        </button>
+                                    </td></tr>';
+                                }
+                            }
+                        }
                     } catch (PDOException $e) {
                         echo '<tr><td colspan="10" class="text-center text-danger">Veritabanı hatası: ' . $e->getMessage() . '</td></tr>';
                     }
@@ -321,69 +437,48 @@ include_once '../../includes/header.php';
             });
         });
 
-        // DataTables başlatmayı manuel olarak deneyelim
-        console.log("DOM yüklendi, DataTables'ı başlatma deneniyor...");
-        try {
-            if (typeof $.fn.DataTable !== 'undefined') {
-                console.log("DataTables kütüphanesi bulundu");
-                
-                if ($.fn.DataTable.isDataTable('#productTable')) {
-                    console.log("productTable zaten DataTable olarak başlatılmış, önce yok ediliyor");
-                    $('#productTable').DataTable().destroy();
+        // Daha Fazla Yükle butonuna tıklama
+        $(document).on('click', '#loadMoreBtn', function() {
+            const nextPage = $(this).data('page');
+            const search = $(this).data('search');
+            const loadingBtn = $(this);
+            
+            // Butonu yükleniyor olarak değiştir
+            loadingBtn.html('<i class="fas fa-spinner fa-spin"></i> Yükleniyor...');
+            loadingBtn.prop('disabled', true);
+            
+            // AJAX ile sonraki sayfayı yükle
+            $.ajax({
+                url: 'load_more_products.php',
+                type: 'GET',
+                data: {
+                    page: nextPage,
+                    q: search
+                },
+                success: function(response) {
+                    // Yükleme satırını kaldır
+                    $('#loadMoreRow').remove();
+                    
+                    // Yeni ürünleri ekle
+                    $('#productTableBody').append(response);
+                },
+                error: function(xhr, status, error) {
+                    alert('Ürünler yüklenirken bir hata oluştu: ' + error);
+                    loadingBtn.html('<i class="fas fa-sync"></i> Tekrar Dene');
+                    loadingBtn.prop('disabled', false);
                 }
-                
-                const dataTablesTurkishLanguage = {
-                    "emptyTable": "Tabloda herhangi bir veri mevcut değil",
-                    "info": "_TOTAL_ kayıttan _START_ - _END_ arasındaki kayıtlar gösteriliyor",
-                    "infoEmpty": "Kayıt yok",
-                    "infoFiltered": "(_MAX_ kayıt içerisinden bulunan)",
-                    "infoThousands": ".",
-                    "lengthMenu": "Sayfada _MENU_ kayıt göster",
-                    "loadingRecords": "Yükleniyor...",
-                    "processing": "İşleniyor...",
-                    "search": "Ara:",
-                    "zeroRecords": "Eşleşen kayıt bulunamadı",
-                    "paginate": {
-                        "first": "İlk",
-                        "last": "Son",
-                        "next": "Sonraki",
-                        "previous": "Önceki"
-                    },
-                    "aria": {
-                        "sortAscending": ": artan sütun sıralamasını aktifleştir",
-                        "sortDescending": ": azalan sütun sıralamasını aktifleştir"
-                    }
-                };
-                
-                console.log("productTable için DataTable başlatılıyor...");
-                $('#productTable').DataTable({
-                    "language": dataTablesTurkishLanguage,
-                    "responsive": true,
-                    "autoWidth": false,
-                    "pageLength": 10,
-                    "lengthMenu": [[10, 25, 50, 100, -1], [10, 25, 50, 100, "Tümü"]]
-                });
-                console.log("productTable başarıyla DataTable olarak başlatıldı");
-
-                // Başarı mesajı
-                let debugPanel = document.getElementById('debug-panel');
-                let debugInfo = document.getElementById('debug-info');
-                debugPanel.style.display = 'block';
-                debugInfo.innerHTML += '<div class="alert alert-success"><strong>Başarılı:</strong> DataTable başarıyla başlatıldı</div>';
-            } else {
-                console.error("DataTables kütüphanesi bulunamadı!");
-                let debugPanel = document.getElementById('debug-panel');
-                let debugInfo = document.getElementById('debug-info');
-                debugPanel.style.display = 'block';
-                debugInfo.innerHTML += '<div class="alert alert-danger"><strong>Hata:</strong> DataTables kütüphanesi bulunamadı. jQuery ve DataTables eklendiğinden emin olun.</div>';
+            });
+        });
+        
+        // Arama formunun gönderilmesini yönet
+        $('#searchForm').on('submit', function(e) {
+            const searchTerm = $('input[name="q"]').val();
+            if (!searchTerm || searchTerm.trim() === '') {
+                e.preventDefault();
+                alert('Lütfen arama yapmak için bir değer girin');
+                return false;
             }
-        } catch (error) {
-            console.error("DataTable başlatılırken hata oluştu:", error);
-            let debugPanel = document.getElementById('debug-panel');
-            let debugInfo = document.getElementById('debug-info');
-            debugPanel.style.display = 'block';
-            debugInfo.innerHTML += '<div class="alert alert-danger"><strong>DataTable Hatası:</strong> ' + error.message + '</div>';
-        }
+        });
     });
 </script>
 
