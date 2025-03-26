@@ -29,10 +29,11 @@ $query = "SELECT f.ID, f.FISNO, f.FISTAR, f.CARIID, f.GENELTOPLAM, f.IPTAL, f.FA
             WHEN f.IPTAL = 1 THEN 'İptal' 
             WHEN f.FATURALANDI = 1 THEN 'Faturalandı' 
             ELSE 'Beklemede' 
-          END as durum
+          END as durum,
+          f.TIP
           FROM stk_fis f
           LEFT JOIN cari c ON f.CARIID = c.ID
-          WHERE f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')";
+          WHERE f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')";
 
 $params = [];
 
@@ -64,9 +65,31 @@ if (!empty($durum)) {
 
 $query .= " ORDER BY f.FISTAR DESC";
 
+// Debug: Sorguyu ve parametreleri göster
+echo '<div class="alert alert-info">';
+echo '<strong>Debug - SQL Sorgusu:</strong> ' . $query . '<br>';
+echo '<strong>Debug - Parametreler:</strong> ';
+print_r($params);
+echo '</div>';
+
+// TIP değerlerini kontrol etmek için ayrı bir sorgu
+$tip_query = "SELECT DISTINCT TIP FROM stk_fis";
+$tip_stmt = $db->query($tip_query);
+$tip_values = $tip_stmt->fetchAll(PDO::FETCH_COLUMN);
+
+echo '<div class="alert alert-info">';
+echo '<strong>Debug - stk_fis tablosundaki TIP değerleri:</strong> ';
+print_r($tip_values);
+echo '</div>';
+
 $stmt = $db->prepare($query);
 $stmt->execute($params);
 $irsaliyeler = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Debug: Kaç irsaliye bulunduğunu göster
+echo '<div class="alert alert-info">';
+echo '<strong>Debug - Bulunan irsaliye sayısı:</strong> ' . count($irsaliyeler);
+echo '</div>';
 ?>
 
 <!DOCTYPE html>

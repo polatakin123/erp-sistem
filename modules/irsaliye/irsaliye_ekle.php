@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ARATOPLAM, FISKDVTUTARI, GENELTOPLAM, CARIADI, IPTAL, FATURALANDI, 
                     NOTLAR, DURUM, SUBEID
                 ) VALUES (
-                    1, 'İrsaliye', :fisno, :tarih, NOW(), :cari_id, :depo_id,
+                    1, '20', :fisno, :tarih, NOW(), :cari_id, :depo_id,
                     :toplam_tutar, 0, 0, 0, 0,
                     :toplam_tutar, 0, :toplam_tutar, :cari_adi, 0, 0,
                     :notlar, 1, 1
@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     KARTTIPI, KARTID, MIKTAR, BIRIMID, FIYAT, TUTAR,
                     KDVORANI, KDVTUTARI, CARIID, DEPOID, SUBEID
                 ) VALUES (
-                    :sirano, 1, 'İrsaliye', :irsaliye_id, :tarih, 'Çıkış',
+                    :sirano, 1, '20', :irsaliye_id, :tarih, 'Çıkış',
                     'S', :urun_id, :miktar, :birim_id, :birim_fiyat, :toplam_tutar,
                     0, 0, :cari_id, :depo_id, 1
                 )";

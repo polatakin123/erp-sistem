@@ -656,7 +656,7 @@ include_once '../../includes/header.php';
                 FROM stk_fis_har h 
                 JOIN stk_fis f ON h.STKFISID = f.ID 
                 LEFT JOIN cari c ON f.CARIID = c.ID 
-                WHERE h.KARTID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')
+                WHERE h.KARTID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')
                 ORDER BY f.FISTAR DESC LIMIT 10";
             $stmt = $db->prepare($query);
             $stmt->execute([$id]);

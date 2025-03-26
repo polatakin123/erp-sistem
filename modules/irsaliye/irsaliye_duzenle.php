@@ -18,7 +18,7 @@ $irsaliye_id = $_GET['id'];
 
 // İrsaliye bilgilerini getir
 $query = "SELECT f.* FROM stk_fis f 
-          WHERE f.ID = ? AND f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')
+          WHERE f.ID = ? AND f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')
           AND f.IPTAL = 0 AND f.FATURALANDI = 0";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);
@@ -55,7 +55,7 @@ $query = "SELECT h.*, s.KOD as urun_kod, s.ADI as urun_adi, b.BIRIM_ADI as birim
           FROM stk_fis_har h 
           LEFT JOIN stok s ON h.KARTID = s.ID
           LEFT JOIN stk_birim b ON s.BIRIMID = b.ID
-          WHERE h.STKFISID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')
+          WHERE h.STKFISID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')
           ORDER BY h.SIRANO";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     KARTTIPI, KARTID, MIKTAR, BIRIMID, FIYAT, TUTAR,
                     KDVORANI, KDVTUTARI, CARIID, DEPOID, SUBEID
                 ) VALUES (
-                    ?, 1, 'İrsaliye', ?, ?, 'Çıkış',
+                    ?, 1, '20', ?, ?, 'Çıkış',
                     'S', ?, ?, ?, ?, ?,
                     0, 0, ?, ?, 1
                 )";

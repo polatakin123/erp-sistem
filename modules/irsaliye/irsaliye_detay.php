@@ -27,7 +27,7 @@ $query = "SELECT f.*, c.ADI as cari_unvan, c.ADRES as cari_adres,
          FROM stk_fis f 
          LEFT JOIN cari c ON f.CARIID = c.ID 
          LEFT JOIN stk_depo d ON f.DEPOID = d.ID 
-         WHERE f.ID = ? AND f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')";
+         WHERE f.ID = ? AND f.TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);
 $irsaliye = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -42,7 +42,7 @@ $query = "SELECT h.*, s.KOD as urun_kod, s.ADI as urun_adi, b.BIRIM_ADI as birim
           FROM stk_fis_har h 
           LEFT JOIN stok s ON h.KARTID = s.ID
           LEFT JOIN stk_birim b ON s.BIRIMID = b.ID
-          WHERE h.STKFISID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')
+          WHERE h.STKFISID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')
           ORDER BY h.SIRANO";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);

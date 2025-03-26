@@ -19,7 +19,7 @@ $irsaliye_id = $_GET['id'];
 // İrsaliye durumunu kontrol et
 $query = "SELECT ID, IPTAL, FATURALANDI 
           FROM stk_fis 
-          WHERE ID = ? AND TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')";
+          WHERE ID = ? AND TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);
 $irsaliye = $stmt->fetch(PDO::FETCH_ASSOC);
