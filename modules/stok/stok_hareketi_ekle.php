@@ -52,8 +52,11 @@ if (!empty($error)) {
 }
 
 try {
-    // Ürün bilgilerini al
-    $stmt = $db->prepare("SELECT current_stock FROM products WHERE id = :id");
+    // STK_URUN_MIKTAR tablosundan mevcut stok miktarını al (yoksa products tablosundan)
+    $stmt = $db->prepare("SELECT m.MIKTAR as stok_miktar, p.current_stock 
+                         FROM products p
+                         LEFT JOIN STK_URUN_MIKTAR m ON p.id = m.URUN_ID
+                         WHERE p.id = :id");
     $stmt->bindParam(':id', $urun_id);
     $stmt->execute();
     
@@ -63,7 +66,8 @@ try {
     }
     
     $urun = $stmt->fetch();
-    $mevcut_stok = $urun['current_stock'];
+    // Öncelikle STK_URUN_MIKTAR tablosundan al, yoksa products tablosundan
+    $mevcut_stok = isset($urun['stok_miktar']) ? $urun['stok_miktar'] : $urun['current_stock'];
     
     // Çıkış işlemi için stok kontrolü
     if ($hareket_tipi == 'cikis' && $miktar > $mevcut_stok) {
@@ -108,7 +112,7 @@ try {
     $stmt->bindParam(':kullanici_id', $_SESSION['user_id']);
     $stmt->execute();
     
-    // Stok miktarını güncelle
+    // Products tablosunda stok miktarını güncelle
     $yeni_stok = $hareket_tipi == 'giris' ? $mevcut_stok + $miktar : $mevcut_stok - $miktar;
     
     $sql = "UPDATE products SET current_stock = :stok_miktari WHERE id = :id";
@@ -116,6 +120,78 @@ try {
     $stmt->bindParam(':stok_miktari', $yeni_stok);
     $stmt->bindParam(':id', $urun_id);
     $stmt->execute();
+    
+    // STK_FIS_HAR tablosuna da ekle (Trigger ile STK_URUN_MIKTAR güncellenir)
+    $islemTipi = ($hareket_tipi == 'giris') ? 0 : 1; // 0: Giriş, 1: Çıkış
+    
+    $sql = "INSERT INTO STK_FIS_HAR (
+                KARTID,
+                ISLEMTIPI,
+                MIKTAR,
+                BIRIM_FIYAT,
+                ACIKLAMA,
+                KULLANICI_ID,
+                TARIH,
+                IPTAL
+            ) VALUES (
+                :urun_id,
+                :islem_tipi,
+                :miktar,
+                :birim_fiyat,
+                :aciklama,
+                :kullanici_id,
+                NOW(),
+                0
+            )";
+    
+    $stmt = $db->prepare($sql);
+    $stmt->bindParam(':urun_id', $urun_id);
+    $stmt->bindParam(':islem_tipi', $islemTipi);
+    $stmt->bindParam(':miktar', $miktar);
+    $stmt->bindParam(':birim_fiyat', $birim_fiyat);
+    $stmt->bindParam(':aciklama', $aciklama);
+    $stmt->bindParam(':kullanici_id', $_SESSION['user_id']);
+    $stmt->execute();
+    
+    // STK_URUN_MIKTAR tablosunu da manuel güncelle (trigger yoksa diye)
+    try {
+        // Önce STK_URUN_MIKTAR tablosunu kontrol et
+        $checkTable = $db->query("SHOW TABLES LIKE 'STK_URUN_MIKTAR'");
+        $tableExists = $checkTable->rowCount() > 0;
+        
+        if ($tableExists) {
+            if ($hareket_tipi == 'giris') {
+                // Giriş için pozitif miktar
+                $guncelMiktar = $miktar;
+                $sql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLEME)
+                        VALUES (:urun_id, :miktar, NOW())
+                        ON DUPLICATE KEY UPDATE MIKTAR = MIKTAR + :miktar, SON_GUNCELLEME = NOW()";
+            } else { // çıkış
+                // Çıkış için negatif miktar PHP'de hesaplanıyor
+                $guncelMiktar = $miktar; // Orijinal miktarı koruyoruz
+                $sql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLEME)
+                        VALUES (:urun_id, :eksi_miktar, NOW())
+                        ON DUPLICATE KEY UPDATE MIKTAR = MIKTAR - :miktar, SON_GUNCELLEME = NOW()";
+            }
+            
+            $stmt = $db->prepare($sql);
+            $stmt->bindParam(':urun_id', $urun_id);
+            
+            if ($hareket_tipi == 'giris') {
+                $stmt->bindParam(':miktar', $guncelMiktar);
+            } else {
+                $eksiMiktar = -$guncelMiktar; // Burada negatif değeri hesaplıyoruz
+                $stmt->bindParam(':eksi_miktar', $eksiMiktar);
+                $stmt->bindParam(':miktar', $guncelMiktar);
+            }
+            
+            $stmt->execute();
+        }
+    } catch (PDOException $e) {
+        // STK_URUN_MIKTAR tablosu yoksa veya güncellemede hata olursa işleme devam et
+        // Bu durumda trigger ile güncellenecektir
+        $_SESSION['warning'] = "STK_URUN_MIKTAR tablosu güncellenirken hata: " . $e->getMessage();
+    }
     
     // İşlemleri tamamla
     $db->commit();

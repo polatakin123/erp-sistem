@@ -45,7 +45,7 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
 <body>
     <!-- Üst Menü -->
     <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
-        <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3" href="<?php echo $rootPath; ?>index.php">ERP Sistem</a>
+        <a class="navbar-brand col-md-auto me-0 px-3" href="<?php echo $rootPath; ?>index.php">ERP Sistem</a>
         <button class="navbar-toggler position-absolute d-md-none collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -100,13 +100,13 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
     </header>
     
     <!-- Ana Konteyner -->
-    <div class="container-fluid">
-        <div class="row">
+    <div class="container-fluid px-0">
+        <div class="row g-0">
             <!-- Sidebar -->
             <?php include $rootPath . 'includes/sidebar.php'; ?>
             
             <!-- Ana İçerik Alanı -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
+            <main class="col">
     
     <!-- Bildirimler Modal -->
     <div class="modal fade" id="bildirimlerModal" tabindex="-1" aria-labelledby="bildirimlerModalLabel" aria-hidden="true">
@@ -190,6 +190,11 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
         </div>
     </div>
     
+    <!-- Sidebar Toggle Butonu -->
+    <div class="sidebar-toggle d-none d-md-flex" id="sidebarToggle">
+        <i class="fas fa-chevron-left"></i>
+    </div>
+    
     <script>
     $(document).ready(function() {
         // Bildirimler butonuna tıklandığında modalı aç
@@ -203,6 +208,26 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
             e.preventDefault();
             $("#mesajlarModal").modal('show');
         });
+        
+        // Sidebar Toggle
+        $("#sidebarToggle").click(function() {
+            $(".sidebar").toggleClass("sidebar-collapsed");
+            
+            // Toggle ikonu değiştir
+            if ($(".sidebar").hasClass("sidebar-collapsed")) {
+                $(this).find("i").removeClass("fa-chevron-left").addClass("fa-chevron-right");
+            } else {
+                $(this).find("i").removeClass("fa-chevron-right").addClass("fa-chevron-left");
+            }
+            
+            // Sidebar durumunu localStorage'a kaydet
+            localStorage.setItem("sidebarCollapsed", $(".sidebar").hasClass("sidebar-collapsed"));
+        });
+        
+        // Sayfa yüklendiğinde sidebar'ı otomatik olarak daralt
+        $(".sidebar").addClass("sidebar-collapsed");
+        $("#sidebarToggle").find("i").removeClass("fa-chevron-left").addClass("fa-chevron-right");
+        localStorage.setItem("sidebarCollapsed", "true");
     });
     </script>
 </body>

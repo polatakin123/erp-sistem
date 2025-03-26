@@ -32,57 +32,76 @@ $referans_tip = isset($_GET['referans_tip']) ? $_GET['referans_tip'] : '';
 $urun = null;
 if ($urun_id) {
     try {
-        $stmt = $db->prepare("SELECT * FROM products WHERE id = :id");
+        $stmt = $db->prepare("SELECT s.*, s.ADI as name, s.KOD as code, g.KOD as unit, sum.MIKTAR as current_stock
+                              FROM stok s
+                              LEFT JOIN stk_birim sb ON s.ID = sb.STOKID
+                              LEFT JOIN grup g ON sb.BIRIMID = g.ID
+                              LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+                              WHERE s.ID = :id");
         $stmt->bindParam(':id', $urun_id);
         $stmt->execute();
         $urun = $stmt->fetch();
     } catch (PDOException $e) {
         // Hata durumunda
+        $error = "Ürün bilgisi alınırken hata: " . $e->getMessage();
     }
 }
 
 // Stok hareketlerini al
 try {
-    $sql = "SELECT sm.*, p.name as urun_adi, p.code as stok_kodu, p.unit as birim, 
-            u.name as kullanici_adi, u.surname as kullanici_soyad
-            FROM stock_movements sm
-            LEFT JOIN products p ON sm.product_id = p.id
-            LEFT JOIN users u ON sm.user_id = u.id
+    $sql = "SELECT sh.*, 
+            sh.TARIH as created_at, 
+            sh.MIKTAR as quantity, 
+            sh.BIRIM_FIYAT as unit_price, 
+            sh.HAREKET_TIPI as movement_type, 
+            sh.REFERANS_TIP as reference_type,
+            sh.REFERANS_NO as reference_no,
+            sh.ACIKLAMA as description,
+            s.ADI as urun_adi, 
+            s.KOD as stok_kodu, 
+            g.KOD as birim, 
+            u.name as kullanici_adi, 
+            u.surname as kullanici_soyad
+            FROM STK_FIS_HAR sh
+            LEFT JOIN stok s ON sh.URUN_ID = s.ID
+            LEFT JOIN stk_birim sb ON s.ID = sb.STOKID
+            LEFT JOIN grup g ON sb.BIRIMID = g.ID
+            LEFT JOIN users u ON sh.KULLANICI_ID = u.id
             WHERE 1=1";
     
     $params = [];
     
     // Ürün ID'sine göre filtrele
     if ($urun_id) {
-        $sql .= " AND sm.product_id = :urun_id";
+        $sql .= " AND sh.URUN_ID = :urun_id";
         $params[':urun_id'] = $urun_id;
     }
     
     // Tarih aralığına göre filtrele
     if ($baslangic_tarihi) {
-        $sql .= " AND DATE(sm.created_at) >= :baslangic_tarihi";
+        $sql .= " AND DATE(sh.TARIH) >= :baslangic_tarihi";
         $params[':baslangic_tarihi'] = $baslangic_tarihi;
     }
     
     if ($bitis_tarihi) {
-        $sql .= " AND DATE(sm.created_at) <= :bitis_tarihi";
+        $sql .= " AND DATE(sh.TARIH) <= :bitis_tarihi";
         $params[':bitis_tarihi'] = $bitis_tarihi;
     }
     
     // Hareket tipine göre filtrele
     if ($hareket_tipi) {
-        $sql .= " AND sm.movement_type = :hareket_tipi";
+        $sql .= " AND sh.HAREKET_TIPI = :hareket_tipi";
         $params[':hareket_tipi'] = $hareket_tipi;
     }
     
     // Referans tipine göre filtrele
     if ($referans_tip) {
-        $sql .= " AND sm.reference_type = :referans_tip";
+        $sql .= " AND sh.REFERANS_TIP = :referans_tip";
         $params[':referans_tip'] = $referans_tip;
     }
     
     // Sıralama
-    $sql .= " ORDER BY sm.created_at DESC";
+    $sql .= " ORDER BY sh.TARIH DESC";
     
     $stmt = $db->prepare($sql);
     foreach ($params as $key => $value) {
@@ -94,6 +113,7 @@ try {
 } catch (PDOException $e) {
     // Hata durumunda
     $error = "Veritabanı hatası: " . $e->getMessage();
+    $stok_hareketleri = []; // Hata durumunda boş dizi tanımla
 }
 
 // Üst kısmı dahil et
@@ -149,7 +169,7 @@ include_once '../../includes/header.php';
                     <?php
                     // Ürünleri listele
                     try {
-                        $stmt = $db->query("SELECT id, code, name FROM products ORDER BY code");
+                        $stmt = $db->query("SELECT ID as id, KOD as code, ADI as name FROM stok ORDER BY KOD");
                         while ($row = $stmt->fetch()) {
                             $selected = ($urun_id == $row['id']) ? 'selected' : '';
                             echo '<option value="' . $row['id'] . '" ' . $selected . '>' . $row['code'] . ' - ' . $row['name'] . '</option>';
@@ -232,18 +252,19 @@ include_once '../../includes/header.php';
                     $toplam_giris_tutar = 0;
                     $toplam_cikis_tutar = 0;
                     
-                    foreach ($stok_hareketleri as $hareket): 
-                        $toplam_tutar = $hareket['quantity'] * $hareket['unit_price'];
-                        
-                        if ($hareket['movement_type'] == 'giris') {
-                            $toplam_giris += $hareket['quantity'];
-                            $toplam_giris_tutar += $toplam_tutar;
-                            $hareket_tipi_text = '<span class="badge bg-success">Giriş</span>';
-                        } else {
-                            $toplam_cikis += $hareket['quantity'];
-                            $toplam_cikis_tutar += $toplam_tutar;
-                            $hareket_tipi_text = '<span class="badge bg-danger">Çıkış</span>';
-                        }
+                    if (!empty($stok_hareketleri)) {
+                        foreach ($stok_hareketleri as $hareket): 
+                            $toplam_tutar = $hareket['quantity'] * $hareket['unit_price'];
+                            
+                            if ($hareket['movement_type'] == 'giris') {
+                                $toplam_giris += $hareket['quantity'];
+                                $toplam_giris_tutar += $toplam_tutar;
+                                $hareket_tipi_text = '<span class="badge bg-success">Giriş</span>';
+                            } else {
+                                $toplam_cikis += $hareket['quantity'];
+                                $toplam_cikis_tutar += $toplam_tutar;
+                                $hareket_tipi_text = '<span class="badge bg-danger">Çıkış</span>';
+                            }
                     ?>
                     <tr>
                         <td><?php echo date('d.m.Y H:i', strtotime($hareket['created_at'])); ?></td>
@@ -272,7 +293,12 @@ include_once '../../includes/header.php';
                         <td><?php echo htmlspecialchars($hareket['kullanici_adi'] . ' ' . $hareket['kullanici_soyad']); ?></td>
                         <td><?php echo htmlspecialchars($hareket['description']); ?></td>
                     </tr>
-                    <?php endforeach; ?>
+                    <?php 
+                        endforeach; 
+                    } else {
+                        echo '<tr><td colspan="' . ($urun_id ? '7' : '9') . '" class="text-center">Arama kriterlerine uygun stok hareketi bulunamadı.</td></tr>';
+                    }
+                    ?>
                 </tbody>
                 <tfoot>
                     <tr class="table-primary">

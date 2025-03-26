@@ -43,7 +43,44 @@ $id = (int)$_GET['id'];
 
 // Ürün bilgilerini al
 try {
-    $stmt = $db->prepare("SELECT * FROM products WHERE id = :id");
+    $stmt = $db->prepare("
+        SELECT s.*, 
+        s.ADI as name, 
+        s.KOD as code, 
+        s.OZELGRUP4 as brand_id, 
+        s.OZELGRUP5 as vehicle_brand_id, 
+        s.OZELGRUP6 as vehicle_model_id, 
+        s.OZELGRUP7 as year_range, 
+        s.OZELGRUP8 as chassis_id, 
+        s.OZELGRUP9 as engine_id, 
+        s.OZELGRUP10 as supplier_id, 
+        s.DURUM as status, 
+        s.ACIKLAMA as description, 
+        g.KOD as unit,
+        sfA.FIYAT as purchase_price,
+        sfS.FIYAT as sale_price,
+        kdv.ORAN as tax_rate,
+        sum.MIKTAR as current_stock,
+        s.MIN_STOK as min_stock,
+        s.EKLEYEN_ID as created_by,
+        s.EKLENME_TARIHI as created_at,
+        s.GUNCELLEYEN_ID as updated_by,
+        s.GUNCELLEME_TARIHI as updated_at,
+        s.OZELALAN1 as oem_no,
+        s.OZELALAN2 as cross_reference,
+        s.OZELALAN3 as dimensions,
+        s.OZELGRUP3 as shelf_code_id,
+        s.OZELGRUP1 as main_category_id,
+        s.OZELGRUP2 as sub_category_id
+        FROM stok s
+        LEFT JOIN stk_birim sb ON s.ID = sb.STOKID
+        LEFT JOIN grup g ON sb.BIRIMID = g.ID
+        LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
+        LEFT JOIN stk_fiyat sfS ON s.ID = sfS.STOKID AND sfS.TIP = 'S'
+        LEFT JOIN kdv ON s.KDVID = kdv.ID
+        LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+        WHERE s.ID = :id
+    ");
     $stmt->bindParam(':id', $id);
     $stmt->execute();
     
@@ -54,6 +91,48 @@ try {
     }
     
     $urun = $stmt->fetch();
+    
+    // OZELGRUP değerlerini çek
+    $grup_ids = [
+        'main_category' => $urun['main_category_id'] ?? null,
+        'sub_category' => $urun['sub_category_id'] ?? null,
+        'shelf_code' => $urun['shelf_code_id'] ?? null,
+        'brand' => $urun['brand_id'] ?? null, 
+        'vehicle_brand' => $urun['vehicle_brand_id'] ?? null,
+        'vehicle_model' => $urun['vehicle_model_id'] ?? null,
+        'chassis' => $urun['chassis_id'] ?? null,
+        'engine' => $urun['engine_id'] ?? null,
+        'supplier' => $urun['supplier_id'] ?? null
+    ];
+    
+    // Tek sorguda tüm grup değerlerini çek
+    $grup_idleri = array_filter(array_values($grup_ids));
+    if (!empty($grup_idleri)) {
+        $placeholders = implode(',', array_fill(0, count($grup_idleri), '?'));
+        $stmt = $db->prepare("SELECT ID, ADI, KOD FROM grup WHERE ID IN ($placeholders)");
+        $stmt->execute($grup_idleri);
+        $gruplar = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Grup ID'leri ve kodları eşleştir
+        $grup_kodlari = [];
+        foreach ($gruplar as $grup) {
+            $grup_kodlari[$grup['ID']] = [
+                'kod' => $grup['KOD'],
+                'adi' => $grup['ADI']
+            ];
+        }
+        
+        // Grup değerlerini ürün dizisine ekle
+        foreach ($grup_ids as $key => $id_value) {
+            if (!empty($id_value) && isset($grup_kodlari[$id_value])) {
+                $urun[$key] = $grup_kodlari[$id_value]['adi']; // ADI değerini kullan
+                $urun[$key.'_code'] = $grup_kodlari[$id_value]['kod']; // KOD değerini de sakla
+            } else {
+                $urun[$key] = '';
+                $urun[$key.'_code'] = '';
+            }
+        }
+    }
     
 } catch (PDOException $e) {
     $_SESSION['error'] = "Veritabanı hatası: " . $e->getMessage();
@@ -105,56 +184,105 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $db->beginTransaction();
             
             // Ürünü güncelle
-            $sql = "UPDATE products SET 
-                    name = ?, 
-                    category_id = ?, 
-                    unit = ?, 
-                    barcode = ?, 
-                    brand = ?, 
-                    model = ?, 
-                    description = ?, 
-                    purchase_price = ?, 
-                    sale_price = ?, 
-                    tax_rate = ?, 
-                    min_stock = ?, 
-                    status = ?, 
-                    oem_no = ?, 
-                    cross_reference = ?, 
-                    dimensions = ?, 
-                    shelf_code = ?, 
-                    vehicle_brand = ?, 
-                    vehicle_model = ?, 
-                    main_category = ?, 
-                    sub_category = ?, 
-                    updated_at = NOW(), 
-                    updated_by = ? 
-                    WHERE id = ?";
+            $sql = "UPDATE stok SET 
+                    ADI = ?, 
+                    OZELGRUP1 = ?, 
+                    OZELGRUP2 = ?, 
+                    BARKOD = ?, 
+                    OZELGRUP4 = ?, 
+                    OZELGRUP6 = ?, 
+                    ACIKLAMA = ?, 
+                    MIN_STOK = ?, 
+                    DURUM = ?, 
+                    OZELALAN1 = ?, 
+                    OZELALAN2 = ?, 
+                    OZELALAN3 = ?, 
+                    OZELGRUP3 = ?, 
+                    OZELGRUP5 = ?, 
+                    OZELGRUP7 = ?, 
+                    OZELGRUP8 = ?, 
+                    OZELGRUP9 = ?, 
+                    GUNCELLEME_TARIHI = NOW(), 
+                    GUNCELLEYEN_ID = ? 
+                    WHERE ID = ?";
             
             $stmt = $db->prepare($sql);
             $stmt->execute([
                 $urun_adi, 
-                $kategori_id, 
-                $birim, 
+                $main_category_id, 
+                $sub_category_id, 
                 $barkod, 
-                $marka, 
-                $model, 
+                $brand_id, 
+                $vehicle_model_id, 
                 $aciklama, 
-                $alis_fiyati, 
-                $satis_fiyati, 
-                $kdv_orani, 
                 $min_stok, 
-                $durum, 
+                $durum == 'active' ? 1 : 0, 
                 $oem_no, 
                 $cross_reference, 
                 $dimensions, 
-                $shelf_code, 
-                $vehicle_brand, 
-                $vehicle_model, 
-                $main_category, 
-                $sub_category, 
+                $shelf_code_id, 
+                $vehicle_brand_id, 
+                $year_range, 
+                $chassis_id, 
+                $engine_id, 
                 $_SESSION['user_id'], 
                 $id
             ]);
+            
+            // Birim bilgisini güncelle
+            if (!empty($birim_id)) {
+                // Önce mevcut birim bağlantısını kontrol et
+                $stmt = $db->prepare("SELECT COUNT(*) FROM stk_birim WHERE STOKID = ?");
+                $stmt->execute([$id]);
+                $birim_exists = (bool)$stmt->fetchColumn();
+                
+                if ($birim_exists) {
+                    // Mevcut bağlantıyı güncelle
+                    $stmt = $db->prepare("UPDATE stk_birim SET BIRIMID = ? WHERE STOKID = ?");
+                    $stmt->execute([$birim_id, $id]);
+                } else {
+                    // Yeni bağlantı oluştur
+                    $stmt = $db->prepare("INSERT INTO stk_birim (STOKID, BIRIMID) VALUES (?, ?)");
+                    $stmt->execute([$id, $birim_id]);
+                }
+            }
+            
+            // Fiyat bilgilerini güncelle
+            if (is_numeric($alis_fiyati)) {
+                // Alış fiyatını güncelle
+                $stmt = $db->prepare("SELECT COUNT(*) FROM stk_fiyat WHERE STOKID = ? AND TIP = 'A'");
+                $stmt->execute([$id]);
+                $fiyat_exists = (bool)$stmt->fetchColumn();
+                
+                if ($fiyat_exists) {
+                    $stmt = $db->prepare("UPDATE stk_fiyat SET FIYAT = ? WHERE STOKID = ? AND TIP = 'A'");
+                    $stmt->execute([$alis_fiyati, $id]);
+                } else {
+                    $stmt = $db->prepare("INSERT INTO stk_fiyat (STOKID, TIP, FIYAT) VALUES (?, 'A', ?)");
+                    $stmt->execute([$id, $alis_fiyati]);
+                }
+            }
+            
+            if (is_numeric($satis_fiyati)) {
+                // Satış fiyatını güncelle
+                $stmt = $db->prepare("SELECT COUNT(*) FROM stk_fiyat WHERE STOKID = ? AND TIP = 'S'");
+                $stmt->execute([$id]);
+                $fiyat_exists = (bool)$stmt->fetchColumn();
+                
+                if ($fiyat_exists) {
+                    $stmt = $db->prepare("UPDATE stk_fiyat SET FIYAT = ? WHERE STOKID = ? AND TIP = 'S'");
+                    $stmt->execute([$satis_fiyati, $id]);
+                } else {
+                    $stmt = $db->prepare("INSERT INTO stk_fiyat (STOKID, TIP, FIYAT) VALUES (?, 'S', ?)");
+                    $stmt->execute([$id, $satis_fiyati]);
+                }
+            }
+            
+            // KDV bilgisini güncelle
+            if (is_numeric($kdv_id)) {
+                $stmt = $db->prepare("UPDATE stok SET KDVID = ? WHERE ID = ?");
+                $stmt->execute([$kdv_id, $id]);
+            }
             
             // OEM numaralarını işle
             if (!empty($oem_no)) {
@@ -277,7 +405,7 @@ if (isset($success)) {
             </div>
             <div class="col-md-4">
                 <label for="barkod" class="form-label">Barkod</label>
-                <input type="text" class="form-control" id="barkod" name="barkod" value="<?php echo htmlspecialchars($urun['barcode'] ?? ''); ?>">
+                <input type="text" class="form-control" id="barkod" name="barkod" value="<?php echo htmlspecialchars($urun['code'] ?? ''); ?>">
             </div>
             
             <!-- Fiyat Bilgileri -->

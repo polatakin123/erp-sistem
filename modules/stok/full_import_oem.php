@@ -1,12 +1,12 @@
 <?php
 /**
- * ERP Sistem - OZELALAN'lardan OEM Verileri İçe Aktarma
+ * ERP Sistem - OZELALAN'lardan OEM Verileri İçe Aktarma (TAM SÜRÜM)
  * 
  * Bu script stok tablosundaki OZELALAN1, OZELALAN2 ve OZELALAN3 sütunlarında bulunan
  * OEM kodlarını boşluklarla ayırarak oem_numbers tablosuna aktarır.
  *
- * NOT: Bu dosya güncellenmiştir. Artık MS SQL Server yerine doğrudan MySQL veritabanındaki
- * 'stok' tablosundan veri çekmektedir.
+ * NOT: Bu dosya, import_oem_from_stok.php dosyasının limit olmadan çalışan versiyonudur.
+ * Tüm ürünlerin OEM verilerini içe aktarır.
  */
 
 // Oturum başlat
@@ -24,7 +24,7 @@ require_once '../../includes/functions.php';
 require_once 'functions.php';
 
 // Sayfa başlığı
-$pageTitle = "OEM Verilerini İçe Aktar";
+$pageTitle = "OEM Verilerini İçe Aktar (Tam Sürüm)";
 
 // Aktar butonuna basıldıysa işlemi başlat
 $import_results = null;
@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['import_oem'])) {
         // Hata mesajları için dizi
         $error_messages = [];
 
-        // Stok veritabanından aktif ürünleri getir
-        $sql = "SELECT ID, OZELALAN1, OZELALAN2, OZELALAN3 FROM stok WHERE DURUM = 1 LIMIT 100";
+        // Stok veritabanından aktif ürünleri getir (limite olmadan tam sürüm)
+        $sql = "SELECT ID, OZELALAN1, OZELALAN2, OZELALAN3 FROM stok WHERE DURUM = 1";
         $stmt = $db->query($sql);
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -54,20 +54,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['import_oem'])) {
             throw new Exception("Veritabanından ürünler alınamadı.");
         }
         
-        // Test modu bilgisi
-        echo '<div class="alert alert-info">TEST MODU: Sadece ilk 100 ürün işlenecek.</div>';
+        // Toplam ürün sayısını al
+        $total_products = count($products);
         
         // Her ürün için döngü
         $processed_count = 0;
-        echo '<div class="progress-info" style="margin-bottom: 15px;">İşlenen ürün sayısı: <span id="processed_count">0</span>/100</div>';
+        echo '<div class="progress-info" style="margin-bottom: 15px;">İşlenen ürün sayısı: <span id="processed_count">0</span>/'.$total_products.'</div>';
         echo '<script>function updateCount(count) { document.getElementById("processed_count").innerText = count; }</script>';
 
         foreach ($products as $row) {
             $stats['total_products']++;
             $processed_count++;
             
-            // Her 10 üründe bir sayacı güncelle
-            if ($processed_count % 10 == 0) {
+            // Her 50 üründe bir sayacı güncelle
+            if ($processed_count % 50 == 0) {
                 echo '<script>updateCount('.$processed_count.');</script>';
                 // Çıktıyı hemen göndermek için flush
                 if (ob_get_level() > 0) {
@@ -113,26 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['import_oem'])) {
                     $stats['total_oem_codes']++;
                     
                     try {
-                        // OEM kodu zaten var mı kontrol et
-                        $check_stmt = $db->prepare("SELECT COUNT(*) FROM oem_numbers WHERE product_id = ? AND oem_no = ?");
-                        $check_stmt->execute([$stok_id, $oem_code]);
-                        $exists = $check_stmt->fetchColumn();
+                        // OEM kodunu tabloya ekle
+                        $stmt = $db->prepare("INSERT IGNORE INTO oem_numbers (product_id, oem_no) VALUES (?, ?)");
+                        $stmt->execute([$stok_id, $oem_code]);
                         
-                        if ($exists > 0) {
-                            // Zaten var, debug bilgisi ekle
-                            $debug_msg = "Ürün ID: {$stok_id}, OEM Kodu: {$oem_code} - Zaten tabloda mevcut.";
-                            $error_messages[] = $debug_msg;
-                        } else {
-                            // OEM kodunu tabloya ekle - INSERT IGNORE yerine normal INSERT kullanıyoruz
-                            $stmt = $db->prepare("INSERT INTO oem_numbers (product_id, oem_no) VALUES (?, ?)");
-                            $stmt->execute([$stok_id, $oem_code]);
-                            
-                            if ($stmt->rowCount() > 0) {
-                                $stats['imported_to_oem_numbers']++;
-                            } else {
-                                $debug_msg = "Ürün ID: {$stok_id}, OEM Kodu: {$oem_code} - Eklenemedi (rowCount=0).";
-                                $error_messages[] = $debug_msg;
-                            }
+                        if ($stmt->rowCount() > 0) {
+                            $stats['imported_to_oem_numbers']++;
                         }
                     } catch (PDOException $e) {
                         $stats['error_count']++;
@@ -208,7 +194,7 @@ include_once '../../includes/header.php';
 
 <!-- Sayfa Başlığı -->
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">OEM Verilerini İçe Aktar</h1>
+    <h1 class="h2">OEM Verilerini İçe Aktar (Tam Sürüm)</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
         <div class="btn-group me-2">
             <a href="index.php" class="btn btn-sm btn-outline-secondary">
@@ -220,8 +206,8 @@ include_once '../../includes/header.php';
 
 <div class="card shadow mb-4">
     <div class="card-header py-3">
-        <h6 class="m-0 font-weight-bold text-primary">OZELALAN'lardan OEM Verileri İçe Aktar</h6>
-        <div class="mt-2 badge badge-info">TEST MODU: Sadece ilk 100 ürün işlenecek</div>
+        <h6 class="m-0 font-weight-bold text-primary">OZELALAN'lardan OEM Verileri İçe Aktar (Tam Sürüm)</h6>
+        <div class="mt-2 badge badge-warning">DİKKAT: Tüm ürünler işlenecek</div>
     </div>
     <div class="card-body">
         <p>
@@ -230,7 +216,7 @@ include_once '../../includes/header.php';
             grupları oluşturulabilir ve OEM numaraları üzerinden ürün araması yapılabilir.
         </p>
         <div class="alert alert-warning">
-            <p><strong>Test Modu:</strong> Şu anda sadece ilk 100 ürün işlenecektir. Tüm ürünleri işlemek için test modunun kapatılması gerekir.</p>
+            <p><strong>Dikkat:</strong> Bu işlem veritabanındaki <strong>TÜM AKTİF ÜRÜNLERİ</strong> işleyecektir. İşlem, ürün sayınıza bağlı olarak uzun sürebilir.</p>
         </div>
         
         <?php if ($import_results !== null): ?>
@@ -270,26 +256,17 @@ include_once '../../includes/header.php';
             </div>
         <?php endif; ?>
         
-        <?php if ($import_results !== null && $import_results['status'] === 'success'): ?>
-            <div class="alert alert-info mt-4">
-                <h5>Test Modu Tamamlandı!</h5>
-                <p>İlk 100 ürün başarıyla işlendi. Tüm ürünlerin OEM verilerini içe aktarmak için aşağıdaki bağlantıya tıklayabilirsiniz.</p>
-                <hr>
-                <p>
-                    <a href="full_import_oem.php" class="btn btn-success"><i class="fas fa-download"></i> Tüm Ürünlerin OEM Verilerini İçe Aktar</a>
-                    <small class="d-block mt-2 text-muted">Not: Bu işlem, veritabanınızdaki ürün sayısına bağlı olarak uzun sürebilir.</small>
-                </p>
-            </div>
-        <?php endif; ?>
-        
         <form method="post" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>">
-            <div class="alert alert-warning">
+            <div class="alert alert-danger">
                 <p><i class="fas fa-exclamation-triangle"></i> <strong>Uyarı:</strong> Bu işlem büyük veritabanlarında zaman alabilir. İşlem sırasında sayfayı kapatmayın veya yenilemeyin.</p>
             </div>
             
-            <button type="submit" name="import_oem" class="btn btn-primary">
-                <i class="fas fa-download"></i> TEST: İlk 100 Ürünün OEM Verilerini İçe Aktar
+            <button type="submit" name="import_oem" class="btn btn-danger">
+                <i class="fas fa-download"></i> Tüm Ürünlerin OEM Verilerini İçe Aktar
             </button>
+            <a href="import_oem_from_stok.php" class="btn btn-outline-primary ml-2">
+                <i class="fas fa-flask"></i> Test Moduna Dön
+            </a>
         </form>
     </div>
 </div>

@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Stok kodu benzersiz olmalı
     try {
-        $stmt = $db->prepare("SELECT COUNT(*) FROM products WHERE code = ?");
+        $stmt = $db->prepare("SELECT COUNT(*) FROM stok WHERE KOD = ?");
         $stmt->execute([$stok_kodu]);
         if ($stmt->fetchColumn() > 0) {
             $errors[] = "Bu stok kodu zaten kullanılmaktadır. Lütfen başka bir stok kodu girin.";
@@ -82,27 +82,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $db->beginTransaction();
             
             // Ürünü kaydet
-            $sql = "INSERT INTO products (code, name, category_id, unit, barcode, brand, model, description, 
-                     purchase_price, sale_price, tax_rate, current_stock, min_stock, status, 
-                     oem_no, cross_reference, dimensions, shelf_code, 
-                     vehicle_brand, vehicle_model, main_category, sub_category, 
-                     created_at, created_by) 
+            $sql = "INSERT INTO stok (KOD, ADI, OZELGRUP1, OZELGRUP2, BARKOD, OZELGRUP4, OZELGRUP6, ACIKLAMA, 
+                     MIN_STOK, DURUM, 
+                     OZELALAN1, OZELALAN2, OZELALAN3, OZELGRUP3, 
+                     OZELGRUP5, OZELGRUP7, OZELGRUP8, OZELGRUP9, 
+                     EKLENME_TARIHI, EKLEYEN_ID) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 
-                     ?, ?, ?, ?, ?, ?, 
+                     ?, ?, 
                      ?, ?, ?, ?, 
                      ?, ?, ?, ?, 
                      NOW(), ?)";
             
             $stmt = $db->prepare($sql);
             $stmt->execute([
-                $stok_kodu, $urun_adi, $kategori_id, $birim, $barkod, $marka, $model, $aciklama, 
-                $alis_fiyati, $satis_fiyati, $kdv_orani, $stok_miktari, $min_stok, $durum, 
-                $oem_no, $cross_reference, $dimensions, $shelf_code, 
-                $vehicle_brand, $vehicle_model, $main_category, $sub_category, 
+                $stok_kodu, $urun_adi, $main_category_id, $sub_category_id, $barkod, $brand_id, $vehicle_model_id, $aciklama, 
+                $min_stok, $durum == 'active' ? 1 : 0, 
+                $oem_no, $cross_reference, $dimensions, $shelf_code_id, 
+                $vehicle_brand_id, $year_range, $chassis_id, $engine_id, 
                 $_SESSION['user_id']
             ]);
             
             $product_id = $db->lastInsertId();
+            
+            // Birim bilgisini ekle
+            if (!empty($birim_id)) {
+                $stmt = $db->prepare("INSERT INTO stk_birim (STOKID, BIRIMID) VALUES (?, ?)");
+                $stmt->execute([$product_id, $birim_id]);
+            }
+            
+            // Fiyat bilgilerini ekle
+            if (is_numeric($alis_fiyati)) {
+                $stmt = $db->prepare("INSERT INTO stk_fiyat (STOKID, TIP, FIYAT) VALUES (?, 'A', ?)");
+                $stmt->execute([$product_id, $alis_fiyati]);
+            }
+            
+            if (is_numeric($satis_fiyati)) {
+                $stmt = $db->prepare("INSERT INTO stk_fiyat (STOKID, TIP, FIYAT) VALUES (?, 'S', ?)");
+                $stmt->execute([$product_id, $satis_fiyati]);
+            }
+            
+            // KDV bilgisini ekle
+            if (is_numeric($kdv_id)) {
+                $stmt = $db->prepare("UPDATE stok SET KDVID = ? WHERE ID = ?");
+                $stmt->execute([$kdv_id, $product_id]);
+            }
             
             // OEM numaralarını işle
             if (!empty($oem_no)) {
@@ -113,12 +136,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
             }
             
-            // Eğer ilk stok girişi yapıldıysa, stok hareketi de kaydet
+            // Eğer ilk stok girişi yapıldıysa, stok hareketi ve miktar kaydı ekle
             if ($stok_miktari > 0) {
-                $sql = "INSERT INTO stock_movements (product_id, movement_type, quantity, unit_price, reference_type, description, user_id, created_at) 
+                // Stok hareketini STK_FIS_HAR tablosuna kaydet
+                $sql = "INSERT INTO STK_FIS_HAR (URUN_ID, HAREKET_TIPI, MIKTAR, BIRIM_FIYAT, REFERANS_TIP, ACIKLAMA, KULLANICI_ID, TARIH) 
                         VALUES (?, 'giris', ?, ?, 'ilk_stok', 'İlk stok girişi', ?, NOW())";
                 $stmt = $db->prepare($sql);
                 $stmt->execute([$product_id, $stok_miktari, $alis_fiyati, $_SESSION['user_id']]);
+                
+                // Toplam miktarı STK_URUN_MIKTAR tablosuna ekle
+                $sql = "INSERT INTO stk_urun_miktar (URUN_ID, MIKTAR) VALUES (?, ?)";
+                $stmt = $db->prepare($sql);
+                $stmt->execute([$product_id, $stok_miktari]);
             }
             
             // İşlemi tamamla

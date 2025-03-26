@@ -14,6 +14,30 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Önbellek yenileme kontrolü
+if (isset($_GET['refresh_cache'])) {
+    // Önbelleği temizle
+    unset($_SESSION['cache_timestamp']);
+    unset($_SESSION['cache_stok_sayisi']);
+    unset($_SESSION['cache_kritik_stok_sayisi']);
+    unset($_SESSION['cache_toplam_stok_degeri']);
+    unset($_SESSION['cache_son_eklenen_urunler']);
+    unset($_SESSION['cache_kritik_stok_urunler']);
+    
+    // Sayfayı yeniden yükle
+    header('Location: index.php?cache_refreshed=1');
+    exit;
+}
+
+// Önbellek yenileme sonrası mesaj
+$cacheRefreshMessage = '';
+if (isset($_GET['cache_refreshed'])) {
+    $cacheRefreshMessage = '<div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="fas fa-check-circle"></i> Önbellek başarıyla temizlendi ve yeniden oluşturuldu.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>';
+}
+
 // Gerekli dosyaları dahil et
 require_once '../../config/db.php';
 require_once '../../includes/functions.php';
@@ -23,53 +47,115 @@ $pageTitle = "Stok Yönetimi";
 
 // Stok sayısını al
 $stokSayisi = 0;
-try {
-    $stmt = $db->query("SELECT COUNT(*) FROM stok");
-    $stokSayisi = $stmt->fetchColumn();
-} catch (PDOException $e) {
-    // Hata durumunda
-    echo errorMessage("Veritabanı hatası: " . $e->getMessage());
-}
+$cacheSuresi = 3600; // 1 saat cache süresi
 
-// Kritik stok sayısını al
-$kritikStokSayisi = 0;
-try {
-    $stmt = $db->query("SELECT COUNT(*) FROM stok WHERE current_stock <= min_stock AND status = 'active'");
-    $kritikStokSayisi = $stmt->fetchColumn();
-} catch (PDOException $e) {
-    // Hata durumunda
-    echo errorMessage("Veritabanı hatası: " . $e->getMessage());
-}
-
-// Toplam stok değerini al
-$toplamStokDegeri = 0;
-try {
-    $stmt = $db->query("SELECT SUM(current_stock * purchase_price) AS toplam_deger FROM stok WHERE status = 'active'");
-    $result = $stmt->fetch();
-    $toplamStokDegeri = $result['toplam_deger'] ?? 0;
-} catch (PDOException $e) {
-    // Hata durumunda
-    echo errorMessage("Veritabanı hatası: " . $e->getMessage());
-}
-
-// Son eklenen ürünleri al
-$sonEklenenUrunler = [];
-try {
-    $stmt = $db->query("SELECT * FROM stok ORDER BY created_at DESC LIMIT 5");
-    $sonEklenenUrunler = $stmt->fetchAll();
-} catch (PDOException $e) {
-    // Hata durumunda
-    echo errorMessage("Veritabanı hatası: " . $e->getMessage());
-}
-
-// Kritik stok seviyesindeki ürünleri al
-$kritikStokUrunler = [];
-try {
-    $stmt = $db->query("SELECT * FROM stok WHERE current_stock <= min_stock AND status = 'active' ORDER BY current_stock ASC LIMIT 5");
-    $kritikStokUrunler = $stmt->fetchAll();
-} catch (PDOException $e) {
-    // Hata durumunda
-    echo errorMessage("Veritabanı hatası: " . $e->getMessage());
+// Session cache kontrolü
+if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp'] > $cacheSuresi)) {
+    // Cache süresi dolmuş veya hiç oluşturulmamış, verileri yeniden çekelim
+    $_SESSION['cache_timestamp'] = time();
+    
+    // Stok sayısını al
+    try {
+        $stmt = $db->query("SELECT COUNT(*) FROM stok");
+        $stokSayisi = $stmt->fetchColumn();
+        $_SESSION['cache_stok_sayisi'] = $stokSayisi;
+    } catch (PDOException $e) {
+        // Hata durumunda
+        echo errorMessage("Veritabanı hatası: " . $e->getMessage());
+    }
+    
+    // Kritik stok sayısını al - STK_URUN_MIKTAR'ı kullanarak
+    $kritikStokSayisi = 0;
+    try {
+        $stmt = $db->query("SELECT COUNT(*) FROM stok s 
+                             LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID
+                             WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1");
+        
+        $kritikStokSayisi = $stmt->fetchColumn();
+        $_SESSION['cache_kritik_stok_sayisi'] = $kritikStokSayisi;
+    } catch (PDOException $e) {
+        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
+        try {
+            $stmt = $db->query("SELECT COUNT(*) FROM stok WHERE GUNCEL_STOK <= MIN_STOK AND DURUM = 1");
+            $kritikStokSayisi = $stmt->fetchColumn();
+            $_SESSION['cache_kritik_stok_sayisi'] = $kritikStokSayisi;
+        } catch (PDOException $e2) {
+            $_SESSION['cache_kritik_stok_sayisi'] = 0;
+            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
+        }
+    }
+    
+    // Toplam stok değerini al - STK_URUN_MIKTAR'ı kullanarak
+    $toplamStokDegeri = 0;
+    try {
+        $stmt = $db->query("SELECT SUM(m.MIKTAR * s.ALIS_FIYAT) AS toplam_deger 
+                             FROM stok s 
+                             LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID
+                             WHERE s.DURUM = 1");
+        
+        $result = $stmt->fetch();
+        $toplamStokDegeri = $result['toplam_deger'] ?? 0;
+        $_SESSION['cache_toplam_stok_degeri'] = $toplamStokDegeri;
+    } catch (PDOException $e) {
+        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
+        try {
+            $stmt = $db->query("SELECT SUM(GUNCEL_STOK * ALIS_FIYAT) AS toplam_deger FROM stok WHERE DURUM = 1");
+            $result = $stmt->fetch();
+            $toplamStokDegeri = $result['toplam_deger'] ?? 0;
+            $_SESSION['cache_toplam_stok_degeri'] = $toplamStokDegeri;
+        } catch (PDOException $e2) {
+            $_SESSION['cache_toplam_stok_degeri'] = 0;
+            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
+        }
+    }
+    
+    // Son eklenen ürünleri al
+    $sonEklenenUrunler = [];
+    try {
+        $stmt = $db->query("SELECT * FROM stok ORDER BY EKLENME_TARIHI DESC LIMIT 5");
+        $sonEklenenUrunler = $stmt->fetchAll();
+        $_SESSION['cache_son_eklenen_urunler'] = $sonEklenenUrunler;
+    } catch (PDOException $e) {
+        // Hata durumunda
+        $_SESSION['cache_son_eklenen_urunler'] = [];
+        echo errorMessage("Veritabanı hatası: " . $e->getMessage());
+    }
+    
+    // Kritik stok seviyesindeki ürünleri al
+    $kritikStokUrunler = [];
+    try {
+        $stmt = $db->query("SELECT s.*, m.MIKTAR 
+                            FROM stok s 
+                            LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID 
+                            WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1 
+                            ORDER BY m.MIKTAR ASC LIMIT 5");
+        $kritikStokUrunler = $stmt->fetchAll();
+        $_SESSION['cache_kritik_stok_urunler'] = $kritikStokUrunler;
+    } catch (PDOException $e) {
+        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
+        try {
+            $stmt = $db->query("SELECT * FROM stok WHERE GUNCEL_STOK <= MIN_STOK AND DURUM = 1 ORDER BY GUNCEL_STOK ASC LIMIT 5");
+            $kritikStokUrunler = $stmt->fetchAll();
+            $_SESSION['cache_kritik_stok_urunler'] = $kritikStokUrunler;
+        } catch (PDOException $e2) {
+            // Hata durumunda
+            $_SESSION['cache_kritik_stok_urunler'] = [];
+            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
+        }
+    }
+    
+    // Cache oluşturulduğuna dair mesaj
+    echo '<div class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="fas fa-sync"></i> Önbellek başarıyla güncellendi. 
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>';
+} else {
+    // Cache'den verileri al
+    $stokSayisi = $_SESSION['cache_stok_sayisi'] ?? 0;
+    $kritikStokSayisi = $_SESSION['cache_kritik_stok_sayisi'] ?? 0;
+    $toplamStokDegeri = $_SESSION['cache_toplam_stok_degeri'] ?? 0;
+    $sonEklenenUrunler = $_SESSION['cache_son_eklenen_urunler'] ?? [];
+    $kritikStokUrunler = $_SESSION['cache_kritik_stok_urunler'] ?? [];
 }
 
 // Üst kısmı dahil et
@@ -93,6 +179,9 @@ include_once '../../includes/header.php';
             <a href="stok_hareketleri.php" class="btn btn-sm btn-outline-secondary">
                 <i class="fas fa-exchange-alt"></i> Stok Hareketleri
             </a>
+            <a href="create_stok_miktari_table.php" class="btn btn-sm btn-outline-danger">
+                <i class="fas fa-database"></i> Stok Miktarı Tablosu Oluştur
+            </a>
         </div>
         <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="fas fa-file-export"></i> Dışa Aktar
@@ -104,6 +193,11 @@ include_once '../../includes/header.php';
         </ul>
     </div>
 </div>
+
+<?php 
+// Önbellek yenileme mesajını göster
+echo $cacheRefreshMessage;
+?>
 
 <!-- Özet Kartları -->
 <div class="row">
@@ -156,6 +250,124 @@ include_once '../../includes/header.php';
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Son Eklenen Ürünler ve Kritik Stok Seviyesindeki Ürünler -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-primary">Son Eklenen Ürünler</h6>
+                <a href="urun_ekle.php" class="btn btn-sm btn-outline-success">
+                    <i class="fas fa-plus"></i> Yeni Ürün
+                </a>
+            </div>
+            <div class="card-body">
+                <?php if (empty($sonEklenenUrunler)): ?>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> Henüz kayıtlı ürün bulunmuyor veya veri çekilemedi.
+                    </div>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Stok Kodu</th>
+                                    <th>Ürün Adı</th>
+                                    <th>Stok Miktarı</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($sonEklenenUrunler as $urun): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($urun['KOD']); ?></td>
+                                        <td><a href="urun_detay.php?id=<?php echo $urun['ID']; ?>"><?php echo htmlspecialchars($urun['ADI']); ?></a></td>
+                                        <td><?php echo isset($urun['MIKTAR']) ? number_format($urun['MIKTAR'], 2, ',', '.') : '0,00'; ?></td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="urun_detay.php?id=<?php echo $urun['ID']; ?>" class="btn btn-info" title="Detay"><i class="fas fa-eye"></i></a>
+                                                <a href="urun_duzenle.php?id=<?php echo $urun['ID']; ?>" class="btn btn-primary" title="Düzenle"><i class="fas fa-edit"></i></a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        <i class="fas fa-history"></i> Önbellek zamanı: <?php echo isset($_SESSION['cache_timestamp']) ? date('d.m.Y H:i:s', $_SESSION['cache_timestamp']) : 'Belirlenmedi'; ?>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-warning">Kritik Stok Seviyesindeki Ürünler</h6>
+                <a href="stok_hareketi_ekle.php" class="btn btn-sm btn-outline-warning">
+                    <i class="fas fa-plus"></i> Stok Girişi
+                </a>
+            </div>
+            <div class="card-body">
+                <?php if (empty($kritikStokUrunler)): ?>
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> Kritik stok seviyesinde ürün bulunmuyor.
+                    </div>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Stok Kodu</th>
+                                    <th>Ürün Adı</th>
+                                    <th>Kritik</th>
+                                    <th>Mevcut</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($kritikStokUrunler as $urun): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($urun['KOD']); ?></td>
+                                        <td><a href="urun_detay.php?id=<?php echo $urun['ID']; ?>"><?php echo htmlspecialchars($urun['ADI']); ?></a></td>
+                                        <td><?php echo isset($urun['MIN_STOK']) ? number_format($urun['MIN_STOK'], 2, ',', '.') : '0,00'; ?></td>
+                                        <td class="text-danger fw-bold"><?php echo isset($urun['MIKTAR']) ? number_format($urun['MIKTAR'], 2, ',', '.') : '0,00'; ?></td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="stok_hareketi_ekle.php?urun_id=<?php echo $urun['ID']; ?>" class="btn btn-success" title="Stok Ekle"><i class="fas fa-plus"></i></a>
+                                                <a href="urun_detay.php?id=<?php echo $urun['ID']; ?>" class="btn btn-info" title="Detay"><i class="fas fa-eye"></i></a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Önbellek Yenileme -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-info">Önbellek Yönetimi</h6>
+    </div>
+    <div class="card-body">
+        <p>Önbellek son güncellenme: <strong><?php echo isset($_SESSION['cache_timestamp']) ? date('d.m.Y H:i:s', $_SESSION['cache_timestamp']) : 'Belirlenmedi'; ?></strong></p>
+        <p>Otomatik güncellenme süresi: <strong><?php echo $cacheSuresi / 60; ?> dakika</strong></p>
+        <form action="" method="get">
+            <input type="hidden" name="refresh_cache" value="1">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-sync"></i> Önbelleği Yenile
+            </button>
+        </form>
     </div>
 </div>
 
@@ -278,25 +490,44 @@ include_once '../../includes/header.php';
                                     }
                                     
                                     if (!empty($urunIds)) {
-                                        // Stok hareketlerinden miktarları hesapla
+                                        // STK_URUN_MIKTAR tablosundan stok miktarlarını al
                                         $stokSql = "SELECT 
-                                            KARTID,
-                                            SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
-                                            SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+                                            URUN_ID as KARTID,
+                                            MIKTAR
                                         FROM 
-                                            STK_FIS_HAR
+                                            STK_URUN_MIKTAR
                                         WHERE 
-                                            IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
-                                        GROUP BY 
-                                            KARTID";
+                                            URUN_ID IN (" . implode(',', $urunIds) . ")";
                                         
                                         try {
                                             $stokStmt = $db->query($stokSql);
                                             while ($stokRow = $stokStmt->fetch()) {
-                                                $stokMiktarlari[$stokRow['KARTID']] = $stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR'];
+                                                $stokMiktarlari[$stokRow['KARTID']] = $stokRow['MIKTAR'];
                                             }
                                         } catch (PDOException $stokHata) {
-                                            echo '<tr><td colspan="10" class="text-center text-warning">Stok miktarları hesaplanırken hata oluştu: ' . $stokHata->getMessage() . '</td></tr>';
+                                            // STK_URUN_MIKTAR tablosu yoksa veya hata oluşursa eski metodu kullan
+                                            try {
+                                                // Stok hareketlerinden miktarları hesapla
+                                                $eskiStokSql = "SELECT 
+                                                    KARTID,
+                                                    SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                                                    SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+                                                FROM 
+                                                    STK_FIS_HAR
+                                                WHERE 
+                                                    IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
+                                                GROUP BY 
+                                                    KARTID";
+                                                
+                                                $eskiStokStmt = $db->query($eskiStokSql);
+                                                while ($eskiStokRow = $eskiStokStmt->fetch()) {
+                                                    $stokMiktarlari[$eskiStokRow['KARTID']] = $eskiStokRow['GIRIS_MIKTAR'] - $eskiStokRow['CIKIS_MIKTAR'];
+                                                }
+                                                
+                                                echo '<tr><td colspan="10" class="text-center text-warning">STK_URUN_MIKTAR tablosu bulunamadı. Stok miktarları STK_FIS_HAR tablosundan hesaplandı. <a href="create_stok_miktari_table.php" class="btn btn-sm btn-warning">Stok Miktarı Tablosunu Oluştur</a></td></tr>';
+                                            } catch (PDOException $eskiStokHata) {
+                                                echo '<tr><td colspan="10" class="text-center text-warning">Stok miktarları hesaplanırken hata oluştu: ' . $eskiStokHata->getMessage() . '</td></tr>';
+                                            }
                                         }
                                     }
                                     

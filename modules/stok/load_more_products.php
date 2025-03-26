@@ -19,6 +19,138 @@ if (!isset($_SESSION['user_id'])) {
 require_once '../../config/db.php';
 require_once '../../includes/functions.php';
 
+/**
+ * Ürün ID'leri için stok miktarlarını hesaplar ve STK_URUN_MIKTAR tablosuna kaydeder
+ * 
+ * @param PDO $db Veritabanı bağlantısı
+ * @param array $urunIds Ürün ID'leri dizisi
+ * @return array Ürün ID'leri ve stok miktarları içeren dizi
+ */
+function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
+    if (empty($urunIds)) {
+        return [];
+    }
+    
+    $stokMiktarlari = [];
+    
+    try {
+        // Tablonun varlığını kontrol et
+        $tableCheck = $db->query("SHOW TABLES LIKE 'STK_URUN_MIKTAR'");
+        if ($tableCheck->rowCount() == 0) {
+            throw new Exception("STK_URUN_MIKTAR tablosu bulunamadı");
+        }
+        
+        // STK_URUN_MIKTAR tablosundan stok miktarlarını çek
+        $stokSql = "SELECT URUN_ID, MIKTAR FROM STK_URUN_MIKTAR WHERE URUN_ID IN (" . implode(',', $urunIds) . ")";
+        $stokStmt = $db->query($stokSql);
+        
+        // Bulunan ürünleri kaydet
+        $bulunanUrunIds = [];
+        while ($stokRow = $stokStmt->fetch(PDO::FETCH_ASSOC)) {
+            $stokMiktarlari[$stokRow['URUN_ID']] = $stokRow['MIKTAR'];
+            $bulunanUrunIds[] = $stokRow['URUN_ID'];
+        }
+        
+        // Eksik ürünleri bul
+        $eksikUrunIds = array_diff($urunIds, $bulunanUrunIds);
+        
+        // Eksik ürünler için STK_FIS_HAR'dan hesapla ve kaydet
+        if (!empty($eksikUrunIds)) {
+            // STK_FIS_HAR tablosundan stok hareketlerini al
+            $eskiStokSql = "SELECT 
+                KARTID,
+                SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+            FROM 
+                STK_FIS_HAR
+            WHERE 
+                IPTAL = 0 AND KARTID IN (" . implode(',', $eksikUrunIds) . ")
+            GROUP BY 
+                KARTID";
+            
+            // Transaction başlat
+            $db->beginTransaction();
+            
+            try {
+                $eskiStokStmt = $db->query($eskiStokSql);
+                $updatedCount = 0;
+                
+                // Stok hareketi olan ürünler
+                while ($eskiStokRow = $eskiStokStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $urunId = $eskiStokRow['KARTID'];
+                    $girisMiktar = $eskiStokRow['GIRIS_MIKTAR'] ?? 0;
+                    $cikisMiktar = $eskiStokRow['CIKIS_MIKTAR'] ?? 0;
+                    $netMiktar = $girisMiktar - $cikisMiktar;
+                    
+                    // Stok miktarını ekle
+                    $stokMiktarlari[$urunId] = $netMiktar;
+                    
+                    // STK_URUN_MIKTAR tablosuna ekle/güncelle
+                    $insertSql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLENME) 
+                                 VALUES (:urun_id, :miktar, NOW()) 
+                                 ON DUPLICATE KEY UPDATE 
+                                 MIKTAR = :miktar, 
+                                 SON_GUNCELLENME = NOW()";
+                    
+                    $insertStmt = $db->prepare($insertSql);
+                    $insertStmt->bindParam(':urun_id', $urunId, PDO::PARAM_INT);
+                    $insertStmt->bindParam(':miktar', $netMiktar, PDO::PARAM_STR);
+                    $insertStmt->execute();
+                    $updatedCount++;
+                }
+                
+                // Stok hareketi olmayan ürünler için sıfır değeri ekle
+                $kayitsizUrunIds = array_diff($eksikUrunIds, array_keys($stokMiktarlari));
+                foreach ($kayitsizUrunIds as $urunId) {
+                    // Stok miktarını sıfır olarak ayarla
+                    $stokMiktarlari[$urunId] = 0;
+                    
+                    // STK_URUN_MIKTAR tablosuna ekle
+                    $insertSql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLENME) 
+                                 VALUES (:urun_id, 0, NOW()) 
+                                 ON DUPLICATE KEY UPDATE 
+                                 MIKTAR = 0, 
+                                 SON_GUNCELLENME = NOW()";
+                    
+                    $insertStmt = $db->prepare($insertSql);
+                    $insertStmt->bindParam(':urun_id', $urunId, PDO::PARAM_INT);
+                    $insertStmt->execute();
+                    $updatedCount++;
+                }
+                
+                // Transaction'ı tamamla
+                $db->commit();
+                
+            } catch (Exception $e) {
+                // Hata durumunda transaction'ı geri al
+                $db->rollBack();
+            }
+        }
+        
+    } catch (Exception $e) {
+        // STK_URUN_MIKTAR tablosu yoksa, sadece STK_FIS_HAR'dan hesapla
+        try {
+            $eskiStokSql = "SELECT 
+                KARTID,
+                SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
+                SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
+            FROM STK_FIS_HAR
+            WHERE IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
+            GROUP BY KARTID";
+            
+            $eskiStokStmt = $db->query($eskiStokSql);
+            while ($eskiStokRow = $eskiStokStmt->fetch(PDO::FETCH_ASSOC)) {
+                $stokMiktarlari[$eskiStokRow['KARTID']] = $eskiStokRow['GIRIS_MIKTAR'] - $eskiStokRow['CIKIS_MIKTAR'];
+            }
+            
+        } catch (Exception $eskiStokHata) {
+            // Hata durumunda boş dizi dön
+        }
+    }
+    
+    return $stokMiktarlari;
+}
+
 // AJAX isteklerini işle
 if (isset($_GET['q']) && isset($_GET['page'])) {
     $search = $_GET['q'];
@@ -54,11 +186,8 @@ if (isset($_GET['q']) && isset($_GET['page'])) {
         $stmt_urunler = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         if (count($stmt_urunler) > 0) {
-            // STK_FIS_HAR tablosundan stok miktarlarını al
+            // Stok miktarlarını hesapla
             try {
-                // Her ürün için güncel stok miktarını hesapla
-                $stokMiktarlari = [];
-                
                 // Ürün ID'lerini al
                 $urunIds = [];
                 foreach ($stmt_urunler as $urun) {
@@ -66,103 +195,54 @@ if (isset($_GET['q']) && isset($_GET['page'])) {
                 }
                 
                 if (!empty($urunIds)) {
-                    // Debug bilgisi ekle
-                    $debug_info = '<div class="alert alert-info">Ürün ID\'leri: ' . implode(',', $urunIds) . '</div>';
+                    // Stok miktarlarını hesapla ve STK_URUN_MIKTAR tablosuna kaydet
+                    $stokMiktarlari = hesaplaVeKaydetStokMiktarlari($db, $urunIds);
                     
-                    // Stok hareketlerinden miktarları hesapla
-                    $stokSql = "SELECT 
-                        KARTID,
-                        SUM(CASE WHEN ISLEMTIPI = 0 THEN MIKTAR ELSE 0 END) AS GIRIS_MIKTAR,
-                        SUM(CASE WHEN ISLEMTIPI = 1 THEN MIKTAR ELSE 0 END) AS CIKIS_MIKTAR
-                    FROM 
-                        STK_FIS_HAR
-                    WHERE 
-                        IPTAL = 0 AND KARTID IN (" . implode(',', $urunIds) . ")
-                    GROUP BY 
-                        KARTID";
-                    
-                    // SQL sorgusunu debug bilgisine ekle
-                    $debug_info .= '<div class="alert alert-info">SQL Sorgusu: ' . $stokSql . '</div>';
-                    
-                    try {
-                        $stokStmt = $db->query($stokSql);
+                    // Stok tablosundan temel bilgileri göster, ama gerçek stok miktarları için hesaplanan değerleri kullan
+                    foreach ($stmt_urunler as $urun) {
+                        $guncel_stok = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
+                        $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
                         
-                        // Sonuç bilgilerini debug bilgisine ekle
-                        $debug_info .= '<div class="alert alert-info">Sonuç Sayısı: ' . $stokStmt->rowCount() . '</div>';
-                        
-                        // Bulunan stok hareketlerini göster
-                        $debug_info .= '<div class="alert alert-info">Stok Hareketleri:<br>';
-                        $debug_stokData = [];
-                        
-                        while ($stokRow = $stokStmt->fetch(PDO::FETCH_ASSOC)) {
-                            $stokMiktarlari[$stokRow['KARTID']] = $stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR'];
-                            $debug_stokData[] = "KARTID: " . $stokRow['KARTID'] . 
-                                ", GİRİŞ: " . $stokRow['GIRIS_MIKTAR'] . 
-                                ", ÇIKIŞ: " . $stokRow['CIKIS_MIKTAR'] . 
-                                ", NET: " . ($stokRow['GIRIS_MIKTAR'] - $stokRow['CIKIS_MIKTAR']);
-                        }
-                        
-                        if (!empty($debug_stokData)) {
-                            $debug_info .= implode('<br>', $debug_stokData);
+                        // Stok hücresi içeriğini hazırla
+                        $stok_hucresi = '';
+                        if ($sistem_stok != $guncel_stok) {
+                            $stok_hucresi = '<span class="text-success">' . number_format($guncel_stok, 2, ',', '.') . '</span>';
+                            $stok_hucresi .= '<br><small class="text-muted">Sistem: ' . number_format($sistem_stok, 2, ',', '.') . '</small>';
                         } else {
-                            $debug_info .= 'Hiç stok hareketi bulunamadı!';
+                            $stok_hucresi = number_format($guncel_stok, 2, ',', '.');
                         }
-                        $debug_info .= '</div>';
                         
-                    } catch (PDOException $stokHata) {
-                        // Stok miktarları hesaplanamadı, varsayılan değerleri kullan
-                        error_log("Stok miktarları hesaplanırken hata: " . $stokHata->getMessage());
-                        $debug_info .= '<div class="alert alert-danger">Hata: ' . $stokHata->getMessage() . '</div>';
+                        $html .= '<tr>
+                            <td class="text-center">
+                                <input type="checkbox" class="select-item" value="' . $urun['ID'] . '">
+                            </td>
+                            <td>' . htmlspecialchars($urun['KOD']) . '</td>
+                            <td><a href="urun_detay.php?id=' . $urun['ID'] . '">' . htmlspecialchars($urun['ADI']) . '</a></td>
+                            <td>' . (isset($urun['TIP']) ? htmlspecialchars($urun['TIP']) : '') . '</td>
+                            <td>' . (isset($urun['BIRIM']) ? htmlspecialchars($urun['BIRIM']) : '-') . '</td>
+                            <td class="text-end">' . (isset($urun['ALIS_FIYAT']) ? number_format($urun['ALIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
+                            <td class="text-end">' . (isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
+                            <td class="text-center">' . $stok_hucresi . '</td>
+                            <td class="text-center">
+                                <span class="badge bg-' . ($urun['DURUM'] == 1 ? 'success' : 'danger') . '">
+                                    ' . ($urun['DURUM'] == 1 ? 'Aktif' : 'Pasif') . '
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group">
+                                    <a href="urun_detay.php?id=' . $urun['ID'] . '" class="btn btn-sm btn-info">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="urun_duzenle.php?id=' . $urun['ID'] . '" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <button type="button" class="btn btn-sm btn-danger delete-btn" data-id="' . $urun['ID'] . '" data-name="' . htmlspecialchars($urun['ADI']) . '">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>';
                     }
-                    
-                    // Debug bilgisini ekrana yazdır
-                    $html .= '<tr><td colspan="10">' . $debug_info . '</td></tr>';
-                }
-                
-                // Stok tablosundan temel bilgileri göster, ama gerçek stok miktarları için STK_FIS_HAR tablosunu kullan
-                foreach ($stmt_urunler as $urun) {
-                    $guncel_stok = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
-                    $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
-                    
-                    // Stok hücresi içeriğini hazırla
-                    $stok_hucresi = '';
-                    if ($sistem_stok != $guncel_stok) {
-                        $stok_hucresi = '<span class="text-success">' . number_format($guncel_stok, 2, ',', '.') . '</span>';
-                        $stok_hucresi .= '<br><small class="text-muted">Sistem: ' . number_format($sistem_stok, 2, ',', '.') . '</small>';
-                    } else {
-                        $stok_hucresi = number_format($guncel_stok, 2, ',', '.');
-                    }
-                    
-                    $html .= '<tr>
-                        <td class="text-center">
-                            <input type="checkbox" class="select-item" value="' . $urun['ID'] . '">
-                        </td>
-                        <td>' . htmlspecialchars($urun['KOD']) . '</td>
-                        <td><a href="urun_detay.php?id=' . $urun['ID'] . '">' . htmlspecialchars($urun['ADI']) . '</a></td>
-                        <td>' . (isset($urun['TIP']) ? htmlspecialchars($urun['TIP']) : '') . '</td>
-                        <td>' . (isset($urun['BIRIM']) ? htmlspecialchars($urun['BIRIM']) : '-') . '</td>
-                        <td class="text-end">' . (isset($urun['ALIS_FIYAT']) ? number_format($urun['ALIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
-                        <td class="text-end">' . (isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
-                        <td class="text-center">' . $stok_hucresi . '</td>
-                        <td class="text-center">
-                            <span class="badge bg-' . ($urun['DURUM'] == 1 ? 'success' : 'danger') . '">
-                                ' . ($urun['DURUM'] == 1 ? 'Aktif' : 'Pasif') . '
-                            </span>
-                        </td>
-                        <td class="text-center">
-                            <div class="btn-group">
-                                <a href="urun_detay.php?id=' . $urun['ID'] . '" class="btn btn-sm btn-info">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                <a href="urun_duzenle.php?id=' . $urun['ID'] . '" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-edit"></i>
-                                </a>
-                                <button type="button" class="btn btn-sm btn-danger delete-btn" data-id="' . $urun['ID'] . '" data-name="' . htmlspecialchars($urun['ADI']) . '">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>';
                 }
                 
             } catch (PDOException $stokHata) {

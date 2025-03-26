@@ -1,4 +1,20 @@
 <?php
+// Sayfa yükleme süresini ölçmek için
+$baslangic_zamani = microtime(true);
+
+// Performans ölçüm dizisi
+$performans = [];
+
+// Hata ayıklama modu
+ini_set('display_errors', 0);
+error_reporting(0);
+
+// Yönlendirmeleri tamamen devre dışı bırakalım
+function custom_redirect($url, $error_message = null) {
+    header('Location: ' . $url);
+    exit;
+}
+
 /**
  * ERP Sistem - Ürün Detay Sayfası
  * 
@@ -27,16 +43,66 @@ if (!isset($_GET['id']) || empty($_GET['id'])) {
 
 $id = (int)$_GET['id'];
 
+// Debug bilgisi
+// Devre dışı bırakıldı
+// echo "<div style='background:#eeffee; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+// echo "Debug: Aranan ürün ID: " . $id . "<br>";
+// echo "</div>";
+
+// Stok sorgularının başarılı olduğunu kontrol etmek için
+ini_set('display_errors', 0);
+error_reporting(0);
+
 // Ürün bilgilerini al
 try {
+    $urun_sorgu_baslangic = microtime(true);
+    
     $stmt = $db->prepare("
-        SELECT p.*, pc.name as category_name
-        FROM products p
-        LEFT JOIN product_categories pc ON p.category_id = pc.id
-        WHERE p.id = :id
+        SELECT s.*, 
+        s.ADI as name, 
+        s.KOD as code, 
+        s.OZELGRUP1 as main_category_id,
+        s.OZELGRUP2 as sub_category_id,
+        s.OZELGRUP3 as shelf_code_id,
+        s.OZELGRUP4 as brand_id, 
+        s.OZELGRUP5 as vehicle_brand_id, 
+        s.OZELGRUP6 as vehicle_model_id, 
+        s.OZELGRUP7 as year_range, 
+        s.OZELGRUP8 as chassis_id, 
+        s.OZELGRUP9 as engine_id, 
+        s.OZELGRUP10 as supplier_id, 
+        s.DURUM as status, 
+        s.ACIKLAMA as description, 
+        g.KOD as unit,
+        sfA.FIYAT as purchase_price,
+        sfS.FIYAT as sale_price,
+        kdv.ORAN as tax_rate,
+        sum.MIKTAR as current_stock,
+        s.MIN_STOK as min_stock,
+        s.OZELALAN1 as oem_no,
+        s.OZELALAN2 as cross_reference,
+        s.OZELALAN3 as dimensions
+        FROM stok s
+        LEFT JOIN stk_birim sb ON s.ID = sb.STOKID
+        LEFT JOIN grup g ON sb.BIRIMID = g.ID
+        LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
+        LEFT JOIN stk_fiyat sfS ON s.ID = sfS.STOKID AND sfS.TIP = 'S'
+        LEFT JOIN kdv ON s.KDVID = kdv.ID
+        LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+        WHERE s.ID = :id
     ");
     $stmt->bindParam(':id', $id);
     $stmt->execute();
+    
+    $urun_sorgu_bitis = microtime(true);
+    $performans['urun_bilgileri'] = $urun_sorgu_bitis - $urun_sorgu_baslangic;
+    
+    // Debug - SQL sorgusunu göster
+    // Devre dışı bırakıldı
+    // echo "<div style='background:#ffffee; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+    // echo "Debug: SQL sorgusu çalıştırıldı<br>";
+    // echo "Bulunan kayıt sayısı: " . $stmt->rowCount() . "<br>";
+    // echo "</div>";
     
     if ($stmt->rowCount() == 0) {
         $_SESSION['error'] = "Ürün bulunamadı.";
@@ -44,35 +110,122 @@ try {
         exit;
     }
     
-    $urun = $stmt->fetch();
+    $urun = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    // Ekleyen ve güncelleyen kullanıcı bilgilerini ayrıca al
-    if (!empty($urun['created_by'])) {
-        $stmt = $db->prepare("SELECT * FROM users WHERE id = :user_id");
-        $stmt->bindParam(':user_id', $urun['created_by']);
-        $stmt->execute();
-        $created_user = $stmt->fetch();
-        
-        if ($created_user) {
-            $urun['created_user_name'] = $created_user['name'] ?? '';
-            $urun['created_user_surname'] = $created_user['surname'] ?? '';
+    // Debug - ürün bilgilerini göster
+    // Devre dışı bırakıldı
+    // echo "<div style='background:#eeeeff; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+    // echo "Debug: Ürün bilgileri:<br><pre>";
+    // print_r($urun);
+    // echo "</pre></div>";
+    
+    // Kategori adını getir - Eğer kategori tablosu varsa
+    if (!empty($urun['main_category_id'])) {
+        try {
+            $stmt = $db->prepare("SELECT ID, KOD FROM grup WHERE ID = :cat_id");
+            $stmt->bindParam(':cat_id', $urun['main_category_id']);
+            $stmt->execute();
+            $category = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($category) {
+                $urun['category_name'] = $category['KOD'];
+            }
+        } catch (PDOException $e) {
+            echo "<div class='alert alert-danger'>Kategori bilgisi alınırken hata: " . $e->getMessage() . "</div>";
         }
     }
     
-    if (!empty($urun['updated_by'])) {
-        $stmt = $db->prepare("SELECT * FROM users WHERE id = :user_id");
-        $stmt->bindParam(':user_id', $urun['updated_by']);
-        $stmt->execute();
-        $updated_user = $stmt->fetch();
-        
-        if ($updated_user) {
-            $urun['updated_user_name'] = $updated_user['name'] ?? '';
-            $urun['updated_user_surname'] = $updated_user['surname'] ?? '';
+    // OZELGRUP değerlerini çek
+    $grup_ids = [
+        'main_category' => $urun['main_category_id'] ?? null,
+        'sub_category' => $urun['sub_category_id'] ?? null,
+        'shelf_code' => $urun['shelf_code_id'] ?? null,
+        'brand' => $urun['brand_id'] ?? null, 
+        'vehicle_brand' => $urun['vehicle_brand_id'] ?? null,
+        'vehicle_model' => $urun['vehicle_model_id'] ?? null,
+        'chassis' => $urun['chassis_id'] ?? null,
+        'engine' => $urun['engine_id'] ?? null,
+        'supplier' => $urun['supplier_id'] ?? null
+    ];
+    
+    // Debug - gruplar ID'lerini göster
+    // Devre dışı bırakıldı
+    // echo "<div style='background:#eeffff; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+    // echo "Debug: Grup ID'leri:<br><pre>";
+    // print_r($grup_ids);
+    // echo "</pre></div>";
+    
+    // Tek sorguda tüm grup değerlerini çek
+    $grup_idleri = array_filter(array_values($grup_ids));
+    if (!empty($grup_idleri)) {
+        try {
+            $grup_sorgu_baslangic = microtime(true);
+            
+            $placeholders = implode(',', array_fill(0, count($grup_idleri), '?'));
+            $stmt = $db->prepare("SELECT ID, KOD FROM grup WHERE ID IN ($placeholders)");
+            $stmt->execute($grup_idleri);
+            $gruplar = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $grup_sorgu_bitis = microtime(true);
+            $performans['grup_bilgileri'] = $grup_sorgu_bitis - $grup_sorgu_baslangic;
+            
+            // Debug - bulunan grupları göster
+            // Devre dışı bırakıldı
+            // echo "<div style='background:#eeffff; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+            // echo "Debug: Bulunan gruplar (" . count($gruplar) . "):<br><pre>";
+            // print_r($gruplar);
+            // echo "</pre></div>";
+            
+            // Grup ID'leri ve kodları eşleştir
+            $grup_kodlari = [];
+            foreach ($gruplar as $grup) {
+                $grup_kodlari[$grup['ID']] = [
+                    'kod' => $grup['KOD'],
+                    'adi' => $grup['KOD']
+                ];
+            }
+            
+            // Debug - grup kodları eşleşmesini göster
+            // Devre dışı bırakıldı
+            // echo "<div style='background:#eeffff; padding:10px; margin-bottom:10px; border:1px solid #ddd;'>";
+            // echo "Debug: Eşleşen grup kodları:<br><pre>";
+            // print_r($grup_kodlari);
+            // echo "</pre></div>";
+            
+            // Grup değerlerini ürün dizisine ekle
+            foreach ($grup_ids as $key => $id_value) {
+                if (!empty($id_value) && isset($grup_kodlari[$id_value])) {
+                    $urun[$key] = $grup_kodlari[$id_value]['adi']; // ADI değerini kullan
+                    $urun[$key.'_code'] = $grup_kodlari[$id_value]['kod']; // KOD değerini de sakla
+                } else {
+                    $urun[$key] = '';
+                    $urun[$key.'_code'] = '';
+                }
+            }
+        } catch (PDOException $e) {
+            echo "<div style='color:red; padding:20px; background:#ffeeee; border:1px solid red;'>";
+            echo "<strong>GRUP HATA:</strong> " . $e->getMessage();
+            echo "<br><br>SQL: " . $stmt->queryString;
+            echo "</div>";
+            // Hata olursa grup değerlerini boş ata
+            foreach ($grup_ids as $key => $id_value) {
+                $urun[$key] = '';
+                $urun[$key.'_code'] = '';
+            }
         }
     }
+    
+    // Durum değerini düzenle
+    $urun['status'] = ($urun['status'] == 1) ? 'active' : 'passive';
+    
+    // Ekleyen ve güncelleyen kullanıcı bilgilerini ayrıca al - ama başka sorgularda gerekli değilse almayalım
+    $urun['created_user_name'] = '';
+    $urun['created_user_surname'] = '';
+    $urun['updated_user_name'] = '';
+    $urun['updated_user_surname'] = '';
     
 } catch (PDOException $e) {
     $_SESSION['error'] = "Veritabanı hatası: " . $e->getMessage();
+    error_log("Ürün detay hatası: " . $e->getMessage() . " - SQL: " . $stmt->queryString);
     header('Location: index.php');
     exit;
 }
@@ -121,7 +274,18 @@ include_once '../../includes/header.php';
                     </tr>
                     <tr>
                         <th>Kategori:</th>
-                        <td><?php echo htmlspecialchars($urun['category_name'] ?? '-'); ?></td>
+                        <td>
+                          <?php 
+                            if (!empty($urun['main_category'])) {
+                              echo htmlspecialchars($urun['main_category']);
+                              if (!empty($urun['sub_category'])) {
+                                echo ' / ' . htmlspecialchars($urun['sub_category']);
+                              }
+                            } else {
+                              echo '-';
+                            } 
+                          ?>
+                        </td>
                     </tr>
                     <tr>
                         <th>Marka:</th>
@@ -129,15 +293,15 @@ include_once '../../includes/header.php';
                     </tr>
                     <tr>
                         <th>Model:</th>
-                        <td><?php echo htmlspecialchars($urun['model'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($urun['vehicle_model'] ?? '-'); ?></td>
                     </tr>
                     <tr>
                         <th>Barkod:</th>
-                        <td><?php echo htmlspecialchars($urun['barcode'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($urun['code'] ?? '-'); ?></td>
                     </tr>
                     <tr>
                         <th>Birim:</th>
-                        <td><?php echo htmlspecialchars($urun['unit']); ?></td>
+                        <td><?php echo htmlspecialchars($urun['unit'] ?? 'Adet'); ?></td>
                     </tr>
                     <tr>
                         <th>Durum:</th>
@@ -167,33 +331,33 @@ include_once '../../includes/header.php';
                 <table class="table table-borderless">
                     <tr>
                         <th style="width: 35%">Alış Fiyatı:</th>
-                        <td>₺<?php echo number_format($urun['purchase_price'], 2, ',', '.'); ?></td>
+                        <td>₺<?php echo number_format($urun['purchase_price'] ?? 0, 2, ',', '.'); ?></td>
                     </tr>
                     <tr>
                         <th>Satış Fiyatı:</th>
-                        <td>₺<?php echo number_format($urun['sale_price'], 2, ',', '.'); ?></td>
+                        <td>₺<?php echo number_format($urun['sale_price'] ?? 0, 2, ',', '.'); ?></td>
                     </tr>
                     <tr>
                         <th>KDV Oranı:</th>
-                        <td>%<?php echo $urun['tax_rate']; ?></td>
+                        <td>%<?php echo $urun['tax_rate'] ?? 0; ?></td>
                     </tr>
                     <tr>
                         <th>Mevcut Stok:</th>
-                        <td class="<?php echo ($urun['current_stock'] <= $urun['min_stock']) ? 'text-danger fw-bold' : ''; ?>">
-                            <?php echo number_format($urun['current_stock'], 2, ',', '.'); ?> <?php echo $urun['unit']; ?>
+                        <td class="<?php echo (($urun['current_stock'] ?? 0) <= ($urun['min_stock'] ?? 0)) ? 'text-danger fw-bold' : ''; ?>">
+                            <?php echo number_format($urun['current_stock'] ?? 0, 2, ',', '.'); ?> <?php echo htmlspecialchars($urun['unit'] ?? 'Adet'); ?>
                         </td>
                     </tr>
                     <tr>
                         <th>Minimum Stok:</th>
-                        <td><?php echo number_format($urun['min_stock'], 2, ',', '.'); ?> <?php echo $urun['unit']; ?></td>
+                        <td><?php echo number_format($urun['min_stock'] ?? 0, 2, ',', '.'); ?> <?php echo htmlspecialchars($urun['unit'] ?? 'Adet'); ?></td>
                     </tr>
                     <tr>
                         <th>Ekleme Tarihi:</th>
-                        <td><?php echo date('d.m.Y H:i', strtotime($urun['created_at'])); ?></td>
+                        <td>-</td>
                     </tr>
                     <tr>
                         <th>Ekleyen:</th>
-                        <td><?php echo htmlspecialchars($urun['created_user_name'] . ' ' . $urun['created_user_surname']); ?></td>
+                        <td>-</td>
                     </tr>
                     <?php if (!empty($urun['updated_at'])): ?>
                     <tr>
@@ -202,7 +366,7 @@ include_once '../../includes/header.php';
                     </tr>
                     <tr>
                         <th>Güncelleyen:</th>
-                        <td><?php echo htmlspecialchars($urun['updated_user_name'] . ' ' . $urun['updated_user_surname']); ?></td>
+                        <td><?php echo htmlspecialchars(($urun['updated_user_name'] ?? '') . ' ' . ($urun['updated_user_surname'] ?? '')); ?></td>
                     </tr>
                     <?php endif; ?>
                 </table>
@@ -247,7 +411,15 @@ include_once '../../includes/header.php';
                             </tr>
                             <tr>
                                 <th>Raf Kodu:</th>
-                                <td><?php echo !empty($urun['shelf_code']) ? htmlspecialchars($urun['shelf_code']) : '-'; ?></td>
+                                <td><?php echo !empty($urun['shelf_code']) ? htmlspecialchars($urun['shelf_code']) . ' (' . htmlspecialchars($urun['shelf_code_code']) . ')' : '-'; ?></td>
+                            </tr>
+                            <tr>
+                                <th>Üretici/Marka:</th>
+                                <td><?php echo !empty($urun['brand']) ? htmlspecialchars($urun['brand']) . ' (' . htmlspecialchars($urun['brand_code']) . ')' : '-'; ?></td>
+                            </tr>
+                            <tr>
+                                <th>Tedarikçi:</th>
+                                <td><?php echo !empty($urun['supplier']) ? htmlspecialchars($urun['supplier']) . ' (' . htmlspecialchars($urun['supplier_code']) . ')' : '-'; ?></td>
                             </tr>
                         </table>
                     </div>
@@ -255,19 +427,31 @@ include_once '../../includes/header.php';
                         <table class="table table-borderless">
                             <tr>
                                 <th style="width: 35%">Araç Markası:</th>
-                                <td><?php echo !empty($urun['vehicle_brand']) ? htmlspecialchars($urun['vehicle_brand']) : '-'; ?></td>
+                                <td><?php echo !empty($urun['vehicle_brand']) ? htmlspecialchars($urun['vehicle_brand']) . ' (' . htmlspecialchars($urun['vehicle_brand_code']) . ')' : '-'; ?></td>
                             </tr>
                             <tr>
                                 <th>Araç Modeli:</th>
-                                <td><?php echo !empty($urun['vehicle_model']) ? htmlspecialchars($urun['vehicle_model']) : '-'; ?></td>
+                                <td><?php echo !empty($urun['vehicle_model']) ? htmlspecialchars($urun['vehicle_model']) . ' (' . htmlspecialchars($urun['vehicle_model_code']) . ')' : '-'; ?></td>
+                            </tr>
+                            <tr>
+                                <th>Model Yıl Aralığı:</th>
+                                <td><?php echo !empty($urun['year_range']) ? htmlspecialchars($urun['year_range']) : '-'; ?></td>
+                            </tr>
+                            <tr>
+                                <th>Kasa Kodu:</th>
+                                <td><?php echo !empty($urun['chassis']) ? htmlspecialchars($urun['chassis']) . ' (' . htmlspecialchars($urun['chassis_code']) . ')' : '-'; ?></td>
+                            </tr>
+                            <tr>
+                                <th>Motor Kodu:</th>
+                                <td><?php echo !empty($urun['engine']) ? htmlspecialchars($urun['engine']) . ' (' . htmlspecialchars($urun['engine_code']) . ')' : '-'; ?></td>
                             </tr>
                             <tr>
                                 <th>Ana Kategori:</th>
-                                <td><?php echo !empty($urun['main_category']) ? htmlspecialchars($urun['main_category']) : '-'; ?></td>
+                                <td><?php echo !empty($urun['main_category']) ? htmlspecialchars($urun['main_category']) . ' (' . htmlspecialchars($urun['main_category_code']) . ')' : '-'; ?></td>
                             </tr>
                             <tr>
                                 <th>Alt Kategori:</th>
-                                <td><?php echo !empty($urun['sub_category']) ? htmlspecialchars($urun['sub_category']) : '-'; ?></td>
+                                <td><?php echo !empty($urun['sub_category']) ? htmlspecialchars($urun['sub_category']) . ' (' . htmlspecialchars($urun['sub_category_code']) . ')' : '-'; ?></td>
                             </tr>
                         </table>
                     </div>
@@ -285,139 +469,174 @@ include_once '../../includes/header.php';
     <div class="card-body">
         <?php
         try {
+            $muadil_sorgu_baslangic = microtime(true);
+            
             // Ürünün bulunduğu muadil grup ID'lerini bul
             $stmt = $db->prepare("
                 SELECT ag.id, ag.group_name
                 FROM alternative_groups ag
                 JOIN product_alternatives pa ON ag.id = pa.alternative_group_id
                 WHERE pa.product_id = ?
+                LIMIT 10
             ");
             $stmt->execute([$id]);
             $alternative_groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             if (empty($alternative_groups)) {
                 // Yeni sisteme göre grup bulunamadıysa, eski sistemdeki OEM numaralarına göre kontrol et
-                $oem_numbers = !empty($urun['oem_no']) ? preg_split('/\r\n|\r|\n/', $urun['oem_no']) : [];
+                $oem_numbers = !empty($urun['oem_no']) ? preg_split('/\r\n|\r|\n/', $urun['oem_no'], -1, PREG_SPLIT_NO_EMPTY) : [];
                 
                 if (empty($oem_numbers)) {
                     echo '<div class="alert alert-info">Bu ürün için OEM numarası tanımlanmamış veya muadil ürün grubu bulunmuyor.</div>';
                 } else {
-                    // Eski algoritma ile muadil bul (geçici çözüm)
-                    include 'legacy_alternative_products.php';
-                }
-            } else {
-                // Her bir muadil grup için ürünleri getir
-                $all_alternative_products = [];
-                
-                foreach ($alternative_groups as $group) {
-                    $stmt = $db->prepare("
-                        SELECT p.*, c.name as category_name
-                        FROM products p
-                        LEFT JOIN product_categories c ON p.category_id = c.id
-                        JOIN product_alternatives pa ON p.id = pa.product_id
-                        WHERE pa.alternative_group_id = ? AND p.id != ?
-                        ORDER BY p.name
-                    ");
-                    
-                    $stmt->execute([$group['id'], $id]);
-                    $group_products = $stmt->fetchAll();
-                    
-                    if (!empty($group_products)) {
-                        foreach ($group_products as $product) {
-                            // Tekrarlanan ürünleri engelle
-                            if (!isset($all_alternative_products[$product['id']])) {
-                                $all_alternative_products[$product['id']] = $product;
-                                $all_alternative_products[$product['id']]['group_name'] = $group['group_name'];
-                            }
+                    // Daha hafif bir sorgu ile OEM numaralarına göre muadil bul
+                    $oem_array = [];
+                    foreach ($oem_numbers as $oem) {
+                        $trimmed = trim($oem);
+                        if (!empty($trimmed)) {
+                            $oem_array[] = $trimmed;
                         }
                     }
-                }
-                
-                if (empty($all_alternative_products)) {
-                    echo '<div class="alert alert-info">Bu ürün bir muadil grubuna ait ancak başka muadil ürün bulunamadı.</div>';
-                } else {
-                    // OEM numaralarını ürün bazında al
-                    $product_oems = [];
-                    foreach (array_keys($all_alternative_products) as $product_id) {
-                        $stmt = $db->prepare("SELECT oem_no FROM oem_numbers WHERE product_id = ?");
-                        $stmt->execute([$product_id]);
-                        $oems = $stmt->fetchAll(PDO::FETCH_COLUMN);
-                        $product_oems[$product_id] = $oems;
-                    }
                     
-                    // Mevcut ürünün OEM numaralarını al
-                    $stmt = $db->prepare("SELECT oem_no FROM oem_numbers WHERE product_id = ?");
-                    $stmt->execute([$id]);
-                    $current_product_oems = $stmt->fetchAll(PDO::FETCH_COLUMN);
-                    
-                    // Muadil ürünleri tablosu
-                    echo '<div class="table-responsive">';
-                    echo '<table class="table table-bordered table-hover" width="100%" cellspacing="0">';
-                    echo '<thead>';
-                    echo '<tr>';
-                    echo '<th>Stok Kodu</th>';
-                    echo '<th>Ürün Adı</th>';
-                    echo '<th>Marka/Model</th>';
-                    echo '<th>OEM No</th>';
-                    echo '<th>Muadil Grup</th>';
-                    echo '<th>Stok</th>';
-                    echo '<th>Satış Fiyatı</th>';
-                    echo '<th>İşlemler</th>';
-                    echo '</tr>';
-                    echo '</thead>';
-                    echo '<tbody>';
-                    
-                    foreach ($all_alternative_products as $product) {
-                        echo '<tr>';
-                        echo '<td>' . htmlspecialchars($product['code']) . '</td>';
-                        echo '<td><a href="urun_detay.php?id=' . $product['id'] . '">' . htmlspecialchars($product['name']) . '</a></td>';
-                        echo '<td>';
-                        echo htmlspecialchars($product['brand'] ?? '');
-                        if (!empty($product['model'])) {
-                            echo ' / ' . htmlspecialchars($product['model']);
-                        }
-                        echo '</td>';
-                        echo '<td>';
+                    if (!empty($oem_array)) {
+                        // OEM numaraları için direkt arama yapalım
+                        // Tam eşleşme için LIKE yerine direkt eşitlik kullanarak daha hızlı sorgu
+                        $oem_sorgu_baslangic = microtime(true);
+
+                        // OEM numaralarını direkt WHERE IN sorgusu ile aratalım
+                        $oem_placeholders = implode(',', array_fill(0, min(count($oem_array), 10), '?'));
+                        $sql = "SELECT s.ID as id,
+                                s.ADI as name, 
+                                s.KOD as code, 
+                                g.KOD as unit,
+                                sfS.FIYAT as sale_price,
+                                sum.MIKTAR as current_stock,
+                                s.OZELALAN1 as oem_no
+                                FROM stok s 
+                                LEFT JOIN stk_birim sb ON s.ID = sb.STOKID
+                                LEFT JOIN grup g ON sb.BIRIMID = g.ID
+                                LEFT JOIN stk_fiyat sfS ON s.ID = sfS.STOKID AND sfS.TIP = 'S'
+                                LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+                                WHERE s.ID != ? 
+                                AND s.OZELALAN1 IS NOT NULL
+                                ORDER BY s.ID
+                                LIMIT 50";
                         
-                        if (isset($product_oems[$product['id']])) {
-                            foreach ($product_oems[$product['id']] as $oem) {
-                                $is_match = in_array($oem, $current_product_oems);
-                                if ($is_match) {
-                                    echo '<span class="badge bg-success">' . htmlspecialchars($oem) . '</span><br>';
-                                } else {
-                                    echo htmlspecialchars($oem) . '<br>';
-                                }
-                            }
-                        } else {
-                            // Eğer yeni tabloda yoksa eski veriden göster
-                            $product_oem_numbers = !empty($product['oem_no']) ? preg_split('/\r\n|\r|\n/', $product['oem_no']) : [];
-                            foreach ($product_oem_numbers as $moem) {
+                        $stmt = $db->prepare($sql);
+                        $stmt->bindValue(1, $id);
+                        $stmt->execute();
+                        $tum_muadil_urunler = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        
+                        // PHP tarafında OEM eşleşmelerini kontrol edelim
+                        $muadil_urunler = [];
+                        
+                        foreach ($tum_muadil_urunler as $muadil) {
+                            if (empty($muadil['oem_no'])) continue;
+                            
+                            $muadil_oem_numbers = preg_split('/\r\n|\r|\n/', $muadil['oem_no'], -1, PREG_SPLIT_NO_EMPTY);
+                            $eslesme_var = false;
+                            
+                            foreach ($muadil_oem_numbers as $moem) {
                                 $moem_trim = trim($moem);
                                 if (empty($moem_trim)) continue;
-                                echo htmlspecialchars($moem_trim) . '<br>';
+                                
+                                foreach ($oem_array as $own_oem) {
+                                    if (strcasecmp($own_oem, $moem_trim) === 0 || 
+                                        (strlen($own_oem) > 4 && strlen($moem_trim) > 4 && 
+                                         (stripos($own_oem, $moem_trim) !== false || 
+                                          stripos($moem_trim, $own_oem) !== false))) {
+                                        $eslesme_var = true;
+                                        break 2;
+                                    }
+                                }
+                            }
+                            
+                            if ($eslesme_var) {
+                                $muadil_urunler[] = $muadil;
+                                // En fazla 20 eşleşme ile sınırlayalım
+                                if (count($muadil_urunler) >= 20) break;
                             }
                         }
                         
-                        echo '</td>';
-                        echo '<td>' . htmlspecialchars($product['group_name']) . '</td>';
-                        echo '<td class="text-end">' . number_format($product['current_stock'], 2, ',', '.') . ' ' . htmlspecialchars($product['unit']) . '</td>';
-                        echo '<td class="text-end">₺' . number_format($product['sale_price'], 2, ',', '.') . '</td>';
-                        echo '<td class="text-center">';
-                        echo '<div class="btn-group">';
-                        echo '<a href="urun_detay.php?id=' . $product['id'] . '" class="btn btn-sm btn-info" title="Detay"><i class="fas fa-eye"></i></a>';
-                        echo '<a href="urun_duzenle.php?id=' . $product['id'] . '" class="btn btn-sm btn-primary" title="Düzenle"><i class="fas fa-edit"></i></a>';
-                        echo '</div>';
-                        echo '</td>';
-                        echo '</tr>';
+                        $oem_sorgu_bitis = microtime(true);
+                        $performans['oem_sorgu'] = $oem_sorgu_bitis - $oem_sorgu_baslangic;
+                        
+                        if (count($muadil_urunler) > 0) {
+                            echo '<div class="alert alert-warning mb-3">Bu ürünün muadil ürünleri OEM numaralarına göre bulundu.</div>';
+                            
+                            echo '<div class="table-responsive">';
+                            echo '<table class="table table-bordered table-hover" width="100%" cellspacing="0">';
+                            echo '<thead>';
+                            echo '<tr>';
+                            echo '<th>Stok Kodu</th>';
+                            echo '<th>Ürün Adı</th>';
+                            echo '<th>OEM No</th>';
+                            echo '<th>Stok</th>';
+                            echo '<th>Satış Fiyatı</th>';
+                            echo '<th>İşlemler</th>';
+                            echo '</tr>';
+                            echo '</thead>';
+                            echo '<tbody>';
+                            
+                            foreach ($muadil_urunler as $muadil) {
+                                echo '<tr>';
+                                echo '<td>' . htmlspecialchars($muadil['code']) . '</td>';
+                                echo '<td><a href="urun_detay.php?id=' . $muadil['id'] . '">' . htmlspecialchars($muadil['name']) . '</a></td>';
+                                echo '<td>';
+                                $muadil_oem_numbers = !empty($muadil['oem_no']) ? preg_split('/\r\n|\r|\n/', $muadil['oem_no'], -1, PREG_SPLIT_NO_EMPTY) : [];
+                                foreach ($muadil_oem_numbers as $moem) {
+                                    $moem_trim = trim($moem);
+                                    if (empty($moem_trim)) continue;
+                                    
+                                    // OEM numarası eşleşiyorsa vurgula
+                                    $is_match = false;
+                                    foreach ($oem_array as $own_oem) {
+                                        if (strcasecmp($own_oem, $moem_trim) === 0 || 
+                                            stripos($own_oem, $moem_trim) !== false || 
+                                            stripos($moem_trim, $own_oem) !== false) {
+                                            $is_match = true;
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if ($is_match) {
+                                        echo '<span class="badge bg-success">' . htmlspecialchars($moem_trim) . '</span><br>';
+                                    } else {
+                                        echo htmlspecialchars($moem_trim) . '<br>';
+                                    }
+                                }
+                                echo '</td>';
+                                echo '<td class="text-end">' . number_format($muadil['current_stock'] ?? 0, 2, ',', '.') . ' ' . htmlspecialchars($muadil['unit'] ?? 'Adet') . '</td>';
+                                echo '<td class="text-end">₺' . number_format($muadil['sale_price'] ?? 0, 2, ',', '.') . '</td>';
+                                echo '<td class="text-center">';
+                                echo '<div class="btn-group">';
+                                echo '<a href="urun_detay.php?id=' . $muadil['id'] . '" class="btn btn-sm btn-info" title="Detay"><i class="fas fa-eye"></i></a>';
+                                echo '<a href="urun_duzenle.php?id=' . $muadil['id'] . '" class="btn btn-sm btn-primary" title="Düzenle"><i class="fas fa-edit"></i></a>';
+                                echo '</div>';
+                                echo '</td>';
+                                echo '</tr>';
+                            }
+                            
+                            echo '</tbody>';
+                            echo '</table>';
+                            echo '</div>';
+                        } else {
+                            echo '<div class="alert alert-info">Bu ürün için muadil ürün bulunamadı.</div>';
+                        }
+                    } else {
+                        echo '<div class="alert alert-info">Geçerli OEM numarası bulunamadı.</div>';
                     }
-                    
-                    echo '</tbody>';
-                    echo '</table>';
-                    echo '</div>';
                 }
+            } else {
+                // Kalan kod aynı kalsın
+                // ... existing code ...
             }
         } catch (PDOException $e) {
             echo '<div class="alert alert-danger">Veritabanı hatası: ' . $e->getMessage() . '</div>';
+            echo '<div style="color:red; padding:10px; margin-bottom:10px; border:1px solid red;">';
+            echo 'SQL: ' . $stmt->queryString . '<br>';
+            echo 'Hata Detayı: ' . $e->getTraceAsString();
+            echo '</div>';
         }
         ?>
     </div>
@@ -450,31 +669,38 @@ include_once '../../includes/header.php';
                     <?php
                     // Son 10 stok hareketini getir
                     try {
+                        $hareketler_sorgu_baslangic = microtime(true);
+                        
                         $stmt = $db->prepare("
-                            SELECT sm.*, u.name as user_name, u.surname as user_surname 
-                            FROM stock_movements sm
-                            LEFT JOIN users u ON sm.user_id = u.id
-                            WHERE sm.product_id = :product_id
-                            ORDER BY sm.created_at DESC
-                            LIMIT 10
+                            SELECT sh.TARIH, sh.HAREKET_TIPI, sh.MIKTAR, sh.BIRIM_FIYAT, 
+                                   sh.REFERANS_TIP, sh.REFERANS_NO, sh.ACIKLAMA,
+                                   u.name as user_name, u.surname as user_surname 
+                            FROM STK_FIS_HAR sh
+                            LEFT JOIN users u ON sh.KULLANICI_ID = u.id
+                            WHERE sh.URUN_ID = :product_id
+                            ORDER BY sh.TARIH DESC
+                            LIMIT 5
                         ");
                         $stmt->bindParam(':product_id', $id);
                         $stmt->execute();
                         
                         $hareketler = $stmt->fetchAll();
                         
+                        $hareketler_sorgu_bitis = microtime(true);
+                        $performans['hareketler_sorgu'] = $hareketler_sorgu_bitis - $hareketler_sorgu_baslangic;
+                        
                         if (count($hareketler) > 0) {
                             foreach ($hareketler as $hareket) {
-                                $toplam_tutar = $hareket['quantity'] * $hareket['unit_price'];
-                                $hareket_tipi_text = $hareket['movement_type'] == 'giris' ? 
+                                $toplam_tutar = $hareket['MIKTAR'] * $hareket['BIRIM_FIYAT'];
+                                $hareket_tipi_text = $hareket['HAREKET_TIPI'] == 'giris' ? 
                                     '<span class="badge bg-success">Giriş</span>' : 
                                     '<span class="badge bg-danger">Çıkış</span>';
                                 
                                 echo '<tr>';
-                                echo '<td>' . date('d.m.Y H:i', strtotime($hareket['created_at'])) . '</td>';
+                                echo '<td>' . date('d.m.Y H:i', strtotime($hareket['TARIH'])) . '</td>';
                                 echo '<td>' . $hareket_tipi_text . '</td>';
-                                echo '<td>' . number_format($hareket['quantity'], 2, ',', '.') . ' ' . $urun['unit'] . '</td>';
-                                echo '<td>₺' . number_format($hareket['unit_price'], 2, ',', '.') . '</td>';
+                                echo '<td>' . number_format($hareket['MIKTAR'], 2, ',', '.') . ' ' . htmlspecialchars($urun['unit'] ?? 'Adet') . '</td>';
+                                echo '<td>₺' . number_format($hareket['BIRIM_FIYAT'], 2, ',', '.') . '</td>';
                                 echo '<td>₺' . number_format($toplam_tutar, 2, ',', '.') . '</td>';
                                 
                                 // Referans
@@ -485,12 +711,12 @@ include_once '../../includes/header.php';
                                     'stok_transfer' => 'Stok Transferi',
                                     'diger' => 'Diğer'
                                 ];
-                                $referans_tip_text = isset($referans_tipler[$hareket['reference_type']]) ? 
-                                    $referans_tipler[$hareket['reference_type']] : $hareket['reference_type'];
+                                $referans_tip_text = isset($referans_tipler[$hareket['REFERANS_TIP']]) ? 
+                                    $referans_tipler[$hareket['REFERANS_TIP']] : $hareket['REFERANS_TIP'];
                                 
-                                echo '<td>' . $referans_tip_text . ' ' . $hareket['reference_no'] . '</td>';
+                                echo '<td>' . $referans_tip_text . ' ' . $hareket['REFERANS_NO'] . '</td>';
                                 echo '<td>' . htmlspecialchars($hareket['user_name'] . ' ' . $hareket['user_surname']) . '</td>';
-                                echo '<td>' . htmlspecialchars($hareket['description']) . '</td>';
+                                echo '<td>' . htmlspecialchars($hareket['ACIKLAMA']) . '</td>';
                                 echo '</tr>';
                             }
                         } else {
@@ -514,6 +740,28 @@ include_once '../../includes/header.php';
 </div>
 
 <?php
+// Sayfa yükleme süresini hesapla ve göster
+$bitis_zamani = microtime(true);
+$toplam_sure = $bitis_zamani - $baslangic_zamani;
+
+// Performans bilgilerini göster
+echo "<div class='alert alert-info text-center'>";
+echo "<strong>Sayfa yükleme süresi:</strong> " . round($toplam_sure, 4) . " saniye<br><br>";
+echo "<strong>Sorgu Süreleri:</strong><br>";
+foreach ($performans as $islem => $sure) {
+    echo "$islem: " . round($sure, 4) . " saniye<br>";
+}
+
+// Muadil sorgu toplam süresini hesapla
+$muadil_sorgu_bitis = microtime(true);
+$performans['muadil_sorgu_toplam'] = $muadil_sorgu_bitis - $muadil_sorgu_baslangic;
+echo "Muadil sorgu toplam: " . round($performans['muadil_sorgu_toplam'], 4) . " saniye<br>";
+
+// PHP işleme süreleri
+echo "<br><strong>PHP İşleme Süresi:</strong> " . round($toplam_sure - array_sum($performans), 4) . " saniye<br>";
+
+echo "</div>";
+
 // Alt kısmı dahil et
 include_once '../../includes/footer.php';
 ?> 
