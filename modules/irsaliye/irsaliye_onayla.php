@@ -8,72 +8,63 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// İrsaliye ID kontrolü
-if (!isset($_GET['id'])) {
+// ID kontrolü
+if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     header('Location: irsaliye_listesi.php');
     exit;
 }
 
 $irsaliye_id = $_GET['id'];
 
+// İrsaliye durumunu kontrol et
+$query = "SELECT ID, IPTAL, FATURALANDI 
+          FROM stk_fis 
+          WHERE ID = ? AND TIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')";
+$stmt = $db->prepare($query);
+$stmt->execute([$irsaliye_id]);
+$irsaliye = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$irsaliye || $irsaliye['IPTAL'] == 1 || $irsaliye['FATURALANDI'] == 1) {
+    header('Location: irsaliye_listesi.php');
+    exit;
+}
+
+// İrsaliyeyi onayla (faturalandı olarak işaretle)
+$query = "UPDATE stk_fis SET FATURALANDI = 1 WHERE ID = ?";
+$stmt = $db->prepare($query);
+$stmt->execute([$irsaliye_id]);
+
+// Stok hareketleri oluştur ve ürün miktarlarını güncelle
 try {
     $db->beginTransaction();
 
-    // İrsaliye durumunu kontrol et
-    $query = "SELECT durum FROM irsaliyeler WHERE id = :id";
+    // İrsaliye kalemlerini getir
+    $query = "SELECT * FROM stk_fis_har WHERE STKFISID = ?";
     $stmt = $db->prepare($query);
-    $stmt->execute(['id' => $irsaliye_id]);
-    $irsaliye = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$irsaliye || $irsaliye['durum'] != 'Beklemede') {
-        throw new Exception('İrsaliye onaylanamaz durumda.');
-    }
-
-    // İrsaliye durumunu güncelle
-    $query = "UPDATE irsaliyeler SET durum = 'Onaylandı', onaylayan_id = :onaylayan_id, onay_tarihi = NOW() 
-              WHERE id = :id";
-    $stmt = $db->prepare($query);
-    $stmt->execute([
-        'id' => $irsaliye_id,
-        'onaylayan_id' => $_SESSION['user_id']
-    ]);
-
-    // Stok hareketlerini oluştur
-    $query = "SELECT ik.*, u.stok_kodu 
-              FROM irsaliye_kalemleri ik 
-              LEFT JOIN urunler u ON ik.urun_id = u.id 
-              WHERE ik.irsaliye_id = :id";
-    $stmt = $db->prepare($query);
-    $stmt->execute(['id' => $irsaliye_id]);
+    $stmt->execute([$irsaliye_id]);
     $kalemler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Her kalem için stok hareketi oluştur
     foreach ($kalemler as $kalem) {
-        // Stok hareketi oluştur
-        $query = "INSERT INTO stok_hareketleri (stok_kodu, hareket_tipi, miktar, birim_fiyat, referans_id, referans_tipi) 
-                  VALUES (:stok_kodu, 'Cikis', :miktar, :birim_fiyat, :referans_id, 'Irsaliye')";
+        // Ürün stoğunu azalt
+        $query = "INSERT INTO stk_urun_miktar (STOKID, DEPOID, MIKTAR, TARIH, ISLEMTIP, REFERANSNO) 
+                  VALUES (?, ?, ?, NOW(), 'Çıkış', ?)";
         $stmt = $db->prepare($query);
         $stmt->execute([
-            'stok_kodu' => $kalem['stok_kodu'],
-            'miktar' => $kalem['miktar'],
-            'birim_fiyat' => $kalem['birim_fiyat'],
-            'referans_id' => $irsaliye_id
-        ]);
-
-        // Stok miktarını güncelle
-        $query = "UPDATE stok SET miktar = miktar - :miktar WHERE stok_kodu = :stok_kodu";
-        $stmt = $db->prepare($query);
-        $stmt->execute([
-            'stok_kodu' => $kalem['stok_kodu'],
-            'miktar' => $kalem['miktar']
+            $kalem['KARTID'],           // Ürün ID
+            $kalem['DEPOID'],           // Depo ID
+            -1 * $kalem['MIKTAR'],      // Miktar (eksi olarak giriyor çünkü stoktan çıkış)
+            'IRS-' . $irsaliye_id       // Referans No
         ]);
     }
 
     $db->commit();
-    $_SESSION['success'] = 'İrsaliye başarıyla onaylandı.';
 } catch (Exception $e) {
     $db->rollBack();
-    $_SESSION['error'] = 'Hata oluştu: ' . $e->getMessage();
+    // Hata durumunda da irsaliye detay sayfasına yönlendir
 }
 
+// Yönlendir
 header('Location: irsaliye_detay.php?id=' . $irsaliye_id);
-exit; 
+exit;
+?> 

@@ -9,17 +9,27 @@ if (!isLoggedIn()) {
 }
 
 // Carileri getir
-$query = "SELECT id, unvan FROM cariler ORDER BY unvan";
+$query = "SELECT ID, ADI as unvan FROM cari ORDER BY ADI";
 $stmt = $db->query($query);
 $cariler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Ürünleri getir
-$query = "SELECT id, kod, ad, birim, fiyat FROM urunler ORDER BY ad";
+// Stok ürünlerini getir
+$query = "SELECT s.ID, s.KOD as kod, s.ADI as ad, 
+         (SELECT BIRIM_ADI FROM stk_birim WHERE ID = s.BIRIMID) as birim,
+         (SELECT FIYAT FROM stk_fiyat WHERE STOKID = s.ID AND TIP = 'S' LIMIT 1) as fiyat
+         FROM stok s 
+         WHERE s.DURUM = 1 
+         ORDER BY s.ADI";
 $stmt = $db->query($query);
 $urunler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Depoları getir
+$query = "SELECT ID, ADI FROM stk_depo ORDER BY ADI";
+$stmt = $db->query($query);
+$depolar = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 // İrsaliye numarası oluştur
-$query = "SELECT MAX(CAST(SUBSTRING(irsaliye_no, 3) AS UNSIGNED)) as max_no FROM irsaliyeler";
+$query = "SELECT MAX(CAST(SUBSTRING(FISNO, 3) AS UNSIGNED)) as max_no FROM stk_fis WHERE TIP='İrsaliye'";
 $stmt = $db->query($query);
 $result = $stmt->fetch(PDO::FETCH_ASSOC);
 $next_no = 'IR' . str_pad(($result['max_no'] ?? 0) + 1, 6, '0', STR_PAD_LEFT);
@@ -29,32 +39,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         $db->beginTransaction();
 
-        // İrsaliye başlık bilgilerini kaydet
-        $query = "INSERT INTO irsaliyeler (irsaliye_no, tarih, cari_id, toplam_tutar, durum, olusturan_id) 
-                  VALUES (:irsaliye_no, :tarih, :cari_id, :toplam_tutar, 'Beklemede', :olusturan_id)";
+        // İrsaliye başlık bilgilerini kaydet (stk_fis tablosu)
+        $query = "INSERT INTO stk_fis (
+                    BOLUMID, TIP, FISNO, FISTAR, FISSAAT, CARIID, DEPOID, 
+                    STOKTOPLAM, KALEMISKTOPLAM, KALEMKDVTOPLAM, ISKORAN1, ISKTUTAR1, 
+                    ARATOPLAM, FISKDVTUTARI, GENELTOPLAM, CARIADI, IPTAL, FATURALANDI, 
+                    NOTLAR, DURUM, SUBEID
+                ) VALUES (
+                    1, 'İrsaliye', :fisno, :tarih, NOW(), :cari_id, :depo_id,
+                    :toplam_tutar, 0, 0, 0, 0,
+                    :toplam_tutar, 0, :toplam_tutar, :cari_adi, 0, 0,
+                    :notlar, 1, 1
+                )";
+
+        // Cari adını alalım
+        $stmt_cari = $db->prepare("SELECT ADI FROM cari WHERE ID = ?");
+        $stmt_cari->execute([$_POST['cari_id']]);
+        $cari_adi = $stmt_cari->fetchColumn();
+
         $stmt = $db->prepare($query);
         $stmt->execute([
-            'irsaliye_no' => $_POST['irsaliye_no'],
+            'fisno' => $_POST['irsaliye_no'],
             'tarih' => $_POST['tarih'],
             'cari_id' => $_POST['cari_id'],
+            'depo_id' => $_POST['depo_id'],
             'toplam_tutar' => $_POST['toplam_tutar'],
-            'olusturan_id' => $_SESSION['user_id']
+            'cari_adi' => $cari_adi,
+            'notlar' => $_POST['notlar'] ?? ''
         ]);
         $irsaliye_id = $db->lastInsertId();
 
-        // İrsaliye kalemlerini kaydet
-        $query = "INSERT INTO irsaliye_kalemleri (irsaliye_id, urun_id, miktar, birim_fiyat, toplam_tutar) 
-                  VALUES (:irsaliye_id, :urun_id, :miktar, :birim_fiyat, :toplam_tutar)";
+        // İrsaliye kalemlerini kaydet (stk_fis_har tablosu)
+        $query = "INSERT INTO stk_fis_har (
+                    SIRANO, BOLUMID, FISTIP, STKFISID, FISTAR, ISLEMTIPI,
+                    KARTTIPI, KARTID, MIKTAR, BIRIMID, FIYAT, TUTAR,
+                    KDVORANI, KDVTUTARI, CARIID, DEPOID, SUBEID
+                ) VALUES (
+                    :sirano, 1, 'İrsaliye', :irsaliye_id, :tarih, 'Çıkış',
+                    'S', :urun_id, :miktar, :birim_id, :birim_fiyat, :toplam_tutar,
+                    0, 0, :cari_id, :depo_id, 1
+                )";
         $stmt = $db->prepare($query);
 
         foreach ($_POST['urun_id'] as $key => $urun_id) {
             if (!empty($urun_id)) {
+                // Ürün birim ID'sini alalım
+                $stmt_birim = $db->prepare("SELECT BIRIMID FROM stok WHERE ID = ?");
+                $stmt_birim->execute([$urun_id]);
+                $birim_id = $stmt_birim->fetchColumn();
+
+                // Sıra numarası
+                $sirano = $key + 1;
+
                 $stmt->execute([
+                    'sirano' => $sirano,
                     'irsaliye_id' => $irsaliye_id,
+                    'tarih' => $_POST['tarih'],
                     'urun_id' => $urun_id,
                     'miktar' => $_POST['miktar'][$key],
+                    'birim_id' => $birim_id,
                     'birim_fiyat' => $_POST['birim_fiyat'][$key],
-                    'toplam_tutar' => $_POST['toplam_tutar'][$key]
+                    'toplam_tutar' => $_POST['kalem_toplam'][$key],
+                    'cari_id' => $_POST['cari_id'],
+                    'depo_id' => $_POST['depo_id']
                 ]);
             }
         }
@@ -96,34 +143,49 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 <form method="post" id="irsaliyeForm">
                     <div class="row mb-3">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="form-label">İrsaliye No</label>
                             <input type="text" class="form-control" name="irsaliye_no" value="<?php echo $next_no; ?>" readonly>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="form-label">Tarih</label>
                             <input type="date" class="form-control" name="tarih" value="<?php echo date('Y-m-d'); ?>" required>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="form-label">Cari</label>
                             <select class="form-select" name="cari_id" required>
                                 <option value="">Seçiniz</option>
                                 <?php foreach ($cariler as $cari): ?>
-                                <option value="<?php echo $cari['id']; ?>"><?php echo htmlspecialchars($cari['unvan']); ?></option>
+                                <option value="<?php echo $cari['ID']; ?>"><?php echo htmlspecialchars($cari['unvan']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Depo</label>
+                            <select class="form-select" name="depo_id" required>
+                                <option value="">Seçiniz</option>
+                                <?php foreach ($depolar as $depo): ?>
+                                <option value="<?php echo $depo['ID']; ?>"><?php echo htmlspecialchars($depo['ADI']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notlar</label>
+                        <textarea class="form-control" name="notlar" rows="2"></textarea>
                     </div>
 
                     <div class="table-responsive mb-3">
                         <table class="table table-bordered" id="kalemTable">
                             <thead>
                                 <tr>
-                                    <th>Ürün</th>
-                                    <th>Miktar</th>
-                                    <th>Birim Fiyat</th>
-                                    <th>Toplam Tutar</th>
-                                    <th></th>
+                                    <th width="40%">Ürün</th>
+                                    <th width="15%">Miktar</th>
+                                    <th width="15%">Birim</th>
+                                    <th width="15%">Birim Fiyat</th>
+                                    <th width="15%">Toplam</th>
+                                    <th width="5%"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -132,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         <select class="form-select urun-select" name="urun_id[]" required>
                                             <option value="">Seçiniz</option>
                                             <?php foreach ($urunler as $urun): ?>
-                                            <option value="<?php echo $urun['id']; ?>" 
+                                            <option value="<?php echo $urun['ID']; ?>" 
                                                     data-birim="<?php echo htmlspecialchars($urun['birim']); ?>"
                                                     data-fiyat="<?php echo $urun['fiyat']; ?>">
                                                 <?php echo htmlspecialchars($urun['kod'] . ' - ' . $urun['ad']); ?>
@@ -141,13 +203,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         </select>
                                     </td>
                                     <td>
-                                        <input type="number" class="form-control miktar" name="miktar[]" step="0.01" required>
+                                        <input type="number" class="form-control miktar" name="miktar[]" step="0.01" min="0.01" required>
                                     </td>
                                     <td>
-                                        <input type="number" class="form-control birim-fiyat" name="birim_fiyat[]" step="0.01" required>
+                                        <input type="text" class="form-control birim" readonly>
                                     </td>
                                     <td>
-                                        <input type="number" class="form-control toplam-tutar" name="toplam_tutar[]" step="0.01" readonly>
+                                        <input type="number" class="form-control birim-fiyat" name="birim_fiyat[]" step="0.01" min="0" required>
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control kalem-toplam" name="kalem_toplam[]" step="0.01" readonly>
                                     </td>
                                     <td>
                                         <button type="button" class="btn btn-danger btn-sm kalem-sil">
@@ -158,7 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="3" class="text-end"><strong>Genel Toplam:</strong></td>
+                                    <td colspan="4" class="text-end"><strong>Genel Toplam:</strong></td>
                                     <td>
                                         <input type="number" class="form-control" name="toplam_tutar" id="genelToplam" step="0.01" readonly>
                                     </td>
@@ -197,58 +262,102 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 newRow.querySelectorAll('input').forEach(input => input.value = '');
                 newRow.querySelector('select').value = '';
                 
+                // Event listenerları yeniden ekle
+                setupEventListeners(newRow);
+                
                 tbody.appendChild(newRow);
             });
 
-            // Kalem satırı sil
-            kalemTable.addEventListener('click', function(e) {
+            // Satır silme fonksiyonu
+            document.addEventListener('click', function(e) {
                 if (e.target.closest('.kalem-sil')) {
-                    const tbody = kalemTable.querySelector('tbody');
-                    if (tbody.children.length > 1) {
-                        e.target.closest('tr').remove();
+                    const btn = e.target.closest('.kalem-sil');
+                    const row = btn.closest('tr');
+                    
+                    // Eğer tabloda sadece bir satır kaldıysa silme
+                    if (kalemTable.querySelectorAll('tbody tr').length > 1) {
+                        row.remove();
                         hesaplaGenelToplam();
                     }
                 }
             });
 
-            // Ürün seçildiğinde
-            kalemTable.addEventListener('change', function(e) {
-                if (e.target.classList.contains('urun-select')) {
-                    const row = e.target.closest('tr');
-                    const option = e.target.options[e.target.selectedIndex];
-                    const birimFiyatInput = row.querySelector('.birim-fiyat');
-                    const miktarInput = row.querySelector('.miktar');
-                    
-                    birimFiyatInput.value = option.dataset.fiyat;
-                    miktarInput.value = '1';
-                    
-                    hesaplaSatirToplam(row);
-                    hesaplaGenelToplam();
-                }
-            });
+            // Ürün seçildiğinde birim ve fiyat bilgilerini doldur
+            function setupEventListeners(row) {
+                const urunSelect = row.querySelector('.urun-select');
+                const miktarInput = row.querySelector('.miktar');
+                const birimInput = row.querySelector('.birim');
+                const birimFiyatInput = row.querySelector('.birim-fiyat');
+                const kalemToplamInput = row.querySelector('.kalem-toplam');
 
-            // Miktar veya birim fiyat değiştiğinde
-            kalemTable.addEventListener('input', function(e) {
-                if (e.target.classList.contains('miktar') || e.target.classList.contains('birim-fiyat')) {
-                    const row = e.target.closest('tr');
-                    hesaplaSatirToplam(row);
-                    hesaplaGenelToplam();
-                }
-            });
+                urunSelect.addEventListener('change', function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    const birim = selectedOption.dataset.birim || '';
+                    const fiyat = selectedOption.dataset.fiyat || 0;
+                    
+                    birimInput.value = birim;
+                    birimFiyatInput.value = fiyat;
+                    
+                    hesaplaKalemToplam(row);
+                });
 
-            function hesaplaSatirToplam(row) {
+                miktarInput.addEventListener('input', function() {
+                    hesaplaKalemToplam(row);
+                });
+
+                birimFiyatInput.addEventListener('input', function() {
+                    hesaplaKalemToplam(row);
+                });
+            }
+
+            // Kalem toplam hesaplama
+            function hesaplaKalemToplam(row) {
                 const miktar = parseFloat(row.querySelector('.miktar').value) || 0;
                 const birimFiyat = parseFloat(row.querySelector('.birim-fiyat').value) || 0;
-                const toplamTutar = miktar * birimFiyat;
-                row.querySelector('.toplam-tutar').value = toplamTutar.toFixed(2);
+                const kalemToplam = miktar * birimFiyat;
+                
+                row.querySelector('.kalem-toplam').value = kalemToplam.toFixed(2);
+                
+                hesaplaGenelToplam();
             }
 
+            // Genel toplam hesaplama
             function hesaplaGenelToplam() {
-                const toplamTutarlar = Array.from(kalemTable.querySelectorAll('.toplam-tutar'))
-                    .map(input => parseFloat(input.value) || 0);
-                const genelToplam = toplamTutarlar.reduce((a, b) => a + b, 0);
+                let genelToplam = 0;
+                document.querySelectorAll('.kalem-toplam').forEach(input => {
+                    genelToplam += parseFloat(input.value) || 0;
+                });
+                
                 genelToplamInput.value = genelToplam.toFixed(2);
             }
+
+            // Form gönderilmeden önce kontroller
+            document.getElementById('irsaliyeForm').addEventListener('submit', function(e) {
+                const urunSecilileri = document.querySelectorAll('.urun-select');
+                let urunSecili = false;
+                
+                urunSecilileri.forEach(select => {
+                    if (select.value) urunSecili = true;
+                });
+                
+                if (!urunSecili) {
+                    e.preventDefault();
+                    alert('En az bir ürün seçmelisiniz!');
+                    return;
+                }
+                
+                const genelToplam = parseFloat(genelToplamInput.value) || 0;
+                if (genelToplam <= 0) {
+                    e.preventDefault();
+                    alert('Toplam tutar 0 olamaz!');
+                    return;
+                }
+            });
+
+            // İlk satır için event listener'ları ayarla
+            document.querySelectorAll('#kalemTable tbody tr').forEach(row => {
+                setupEventListeners(row);
+            });
         });
     </script>
 </body>

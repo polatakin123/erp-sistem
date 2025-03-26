@@ -642,6 +642,73 @@ include_once '../../includes/header.php';
     </div>
 </div>
 
+<!-- İrsaliye Hareketleri -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <h6 class="m-0 font-weight-bold text-primary">İrsaliye Hareketleri</h6>
+    </div>
+    <div class="card-body">
+        <?php
+        try {
+            $query = "SELECT f.ID, f.FISNO, f.FISTAR, h.MIKTAR, h.FIYAT, h.TUTAR, h.ISLEMTIPI, 
+                    c.ADI as cari_adi, 
+                    (SELECT BIRIM_ADI FROM stk_birim WHERE ID = h.BIRIMID) as birim_adi
+                FROM stk_fis_har h 
+                JOIN stk_fis f ON h.STKFISID = f.ID 
+                LEFT JOIN cari c ON f.CARIID = c.ID 
+                WHERE h.KARTID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE')
+                ORDER BY f.FISTAR DESC LIMIT 10";
+            $stmt = $db->prepare($query);
+            $stmt->execute([$id]);
+            $irsaliyeler = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+            if (count($irsaliyeler) > 0) {
+                echo '<div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                    <thead>
+                        <tr>
+                            <th>İrsaliye No</th>
+                            <th>Tarih</th>
+                            <th>Cari</th>
+                            <th>İşlem Tipi</th>
+                            <th>Miktar</th>
+                            <th>Birim</th>
+                            <th>Birim Fiyat</th>
+                            <th>Tutar</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>';
+                
+                foreach ($irsaliyeler as $hareket) {
+                    echo '<tr>
+                        <td>' . htmlspecialchars($hareket['FISNO']) . '</td>
+                        <td>' . date('d.m.Y', strtotime($hareket['FISTAR'])) . '</td>
+                        <td>' . htmlspecialchars($hareket['cari_adi']) . '</td>
+                        <td>' . htmlspecialchars($hareket['ISLEMTIPI']) . '</td>
+                        <td class="text-end">' . number_format($hareket['MIKTAR'], 2, ',', '.') . '</td>
+                        <td>' . htmlspecialchars($hareket['birim_adi']) . '</td>
+                        <td class="text-end">' . number_format($hareket['FIYAT'], 2, ',', '.') . '₺</td>
+                        <td class="text-end">' . number_format($hareket['TUTAR'], 2, ',', '.') . '₺</td>
+                        <td>
+                            <a href="../../modules/irsaliye/irsaliye_detay.php?id=' . $hareket['ID'] . '" class="btn btn-sm btn-info">
+                                <i class="fas fa-eye"></i> Görüntüle
+                            </a>
+                        </td>
+                    </tr>';
+                }
+                
+                echo '</tbody></table></div>';
+            } else {
+                echo '<div class="alert alert-info">Bu ürüne ait irsaliye hareketi bulunamadı.</div>';
+            }
+        } catch (PDOException $e) {
+            echo '<div class="alert alert-danger">İrsaliye hareketleri yüklenirken bir hata oluştu: ' . $e->getMessage() . '</div>';
+        }
+        ?>
+    </div>
+</div>
+
 <!-- Son Stok Hareketleri -->
 <div class="card shadow mb-4">
     <div class="card-header py-3 d-flex justify-content-between align-items-center">

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Anamakine: 127.0.0.1
--- Üretim Zamanı: 26 Mar 2025, 16:02:24
+-- Üretim Zamanı: 26 Mar 2025, 23:14:44
 -- Sunucu sürümü: 10.4.22-MariaDB
 -- PHP Sürümü: 8.0.3
 
@@ -20,6 +20,46 @@ SET time_zone = "+00:00";
 --
 -- Veritabanı: `erp_sistem`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Tablo için tablo yapısı `adres`
+--
+
+CREATE TABLE `adres` (
+  `ID` int(11) NOT NULL,
+  `BOLUMID` int(11) NOT NULL,
+  `KARTID` int(11) NOT NULL,
+  `SUBTIP` varchar(255) NOT NULL,
+  `SUBID` int(11) NOT NULL,
+  `ADRES1` varchar(200) DEFAULT NULL,
+  `ADRES2` varchar(200) DEFAULT NULL,
+  `ULKEID` int(11) DEFAULT NULL,
+  `SEHIRID` int(11) DEFAULT NULL,
+  `ILCE` varchar(200) DEFAULT NULL,
+  `SEMT` varchar(200) DEFAULT NULL,
+  `POSTAKODU` varchar(10) DEFAULT NULL,
+  `BOLGEKODUID` int(11) DEFAULT NULL,
+  `TELEFON1` varchar(30) DEFAULT NULL,
+  `TELEFON2` varchar(30) DEFAULT NULL,
+  `FAX` varchar(30) DEFAULT NULL,
+  `GSM` varchar(30) DEFAULT NULL,
+  `MAIL` varchar(200) DEFAULT NULL,
+  `URL` varchar(200) DEFAULT NULL,
+  `NOTLAR` text DEFAULT NULL,
+  `VARSAYILAN` tinyint(1) DEFAULT NULL,
+  `KOD` varchar(20) NOT NULL,
+  `ENLEM` varchar(10) DEFAULT NULL,
+  `BOYLAM` varchar(10) DEFAULT NULL,
+  `VERGIDAIRESI` varchar(20) DEFAULT NULL,
+  `VERGINO` varchar(20) DEFAULT NULL,
+  `TEL1INFO` varchar(255) DEFAULT NULL,
+  `BINANO` varchar(40) DEFAULT NULL,
+  `SMSIPTAL` varchar(255) DEFAULT NULL,
+  `MOBIL_ENLEM` varchar(255) DEFAULT NULL,
+  `MOBIL_BOYLAM` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- --------------------------------------------------------
 
@@ -1027,6 +1067,118 @@ CREATE TABLE `stk_birim` (
 -- --------------------------------------------------------
 
 --
+-- Tablo için tablo yapısı `stk_fis`
+--
+
+CREATE TABLE `stk_fis` (
+  `ID` int(11) NOT NULL,
+  `BOLUMID` int(11) NOT NULL,
+  `TIP` varchar(255) NOT NULL,
+  `FISNO` varchar(20) NOT NULL,
+  `FISTAR` datetime NOT NULL,
+  `FISSAAT` datetime DEFAULT NULL,
+  `SEVKTAR` datetime DEFAULT NULL,
+  `SEVKSAAT` datetime DEFAULT NULL,
+  `KDVDAHIL` tinyint(1) NOT NULL,
+  `KDVDAHILISK` tinyint(1) NOT NULL,
+  `CARIID` int(11) NOT NULL,
+  `FATFISID` int(11) NOT NULL,
+  `DOVIZUSETIP` varchar(255) NOT NULL,
+  `VADESI` datetime DEFAULT NULL,
+  `OTPLANID` int(11) NOT NULL,
+  `DEPOID` int(11) NOT NULL,
+  `CIKIS_DEPOID` int(11) DEFAULT NULL,
+  `STOKTOPLAM` decimal(18,2) NOT NULL,
+  `HIZMETTOPLAM` decimal(18,2) NOT NULL,
+  `KALEMISKTOPLAM` decimal(18,2) NOT NULL,
+  `KALEMKDVTOPLAM` decimal(18,2) NOT NULL,
+  `ISKORAN1` decimal(18,2) NOT NULL,
+  `ISKTUTAR1` decimal(18,2) NOT NULL,
+  `ISKORAN2` decimal(18,2) NOT NULL,
+  `ISKTUTAR2` decimal(18,2) NOT NULL,
+  `ARATOPLAM` decimal(18,2) NOT NULL,
+  `FISKDVTUTARI` decimal(18,2) NOT NULL,
+  `GENELTOPLAM` decimal(18,2) NOT NULL,
+  `KUR_RAPOR` decimal(18,2) NOT NULL,
+  `GENELTOPLAM_RAPOR` decimal(18,2) NOT NULL,
+  `CARIADI` varchar(400) DEFAULT NULL,
+  `ADRESKODU` varchar(20) DEFAULT NULL,
+  `ADRES1` varchar(200) DEFAULT NULL,
+  `ADRES2` varchar(200) DEFAULT NULL,
+  `SEMT` varchar(200) DEFAULT NULL,
+  `ILCE` varchar(200) DEFAULT NULL,
+  `SEHIR` varchar(40) DEFAULT NULL,
+  `ULKE` varchar(40) DEFAULT NULL,
+  `POSTAKODU` varchar(10) DEFAULT NULL,
+  `BOLGEKODU` varchar(40) DEFAULT NULL,
+  `TELEFON1` varchar(30) DEFAULT NULL,
+  `TELEFON2` varchar(30) DEFAULT NULL,
+  `FAX` varchar(30) DEFAULT NULL,
+  `GSM` varchar(30) DEFAULT NULL,
+  `MAIL` varchar(200) DEFAULT NULL,
+  `URL` varchar(200) DEFAULT NULL,
+  `ENLEM` varchar(10) DEFAULT NULL,
+  `BOYLAM` varchar(10) DEFAULT NULL,
+  `VERGINO` varchar(20) DEFAULT NULL,
+  `VERGIDAIRESI` varchar(20) DEFAULT NULL,
+  `IPTAL` tinyint(1) NOT NULL,
+  `URTFISID` int(11) DEFAULT NULL,
+  `BASILDI` tinyint(1) NOT NULL,
+  `FATURALANDI` tinyint(1) NOT NULL,
+  `DOVIZLIHARCOUNT` varchar(255) DEFAULT NULL,
+  `OZELGRUP1` int(11) DEFAULT NULL,
+  `OZELGRUP2` int(11) DEFAULT NULL,
+  `OZELGRUP3` int(11) DEFAULT NULL,
+  `OZELGRUP4` int(11) DEFAULT NULL,
+  `OZELGRUP5` int(11) DEFAULT NULL,
+  `OZELALAN1` varchar(40) DEFAULT NULL,
+  `OZELALAN2` varchar(40) DEFAULT NULL,
+  `OZELALAN3` varchar(40) DEFAULT NULL,
+  `OZELALAN4` varchar(40) DEFAULT NULL,
+  `OZELALAN5` varchar(40) DEFAULT NULL,
+  `NOTLAR` text DEFAULT NULL,
+  `PLASIYERID` int(11) DEFAULT NULL,
+  `ONODEMELISIPARIS` tinyint(1) NOT NULL,
+  `OTVTOPLAMI` decimal(18,2) NOT NULL,
+  `MUHFISID` int(11) DEFAULT NULL,
+  `SUBEID` int(11) NOT NULL,
+  `CIKIS_SUBEID` int(11) DEFAULT NULL,
+  `YETKIKODID` int(11) DEFAULT NULL,
+  `GENELGRUP1` int(11) DEFAULT NULL,
+  `GENELGRUP2` int(11) DEFAULT NULL,
+  `GENELGRUP3` int(11) DEFAULT NULL,
+  `GENELGRUP4` int(11) DEFAULT NULL,
+  `GENELGRUP5` int(11) DEFAULT NULL,
+  `ERP_URETIM_FISID` int(11) DEFAULT NULL,
+  `ERP_URETIM_HARID` int(11) DEFAULT NULL,
+  `ERP_BOLUMID` int(11) DEFAULT NULL,
+  `ERP_FISID` int(11) DEFAULT NULL,
+  `ERP_HARID` int(11) DEFAULT NULL,
+  `TESLIM_EDENID` int(11) DEFAULT NULL,
+  `TESLIM_ALANID` int(11) DEFAULT NULL,
+  `TESLIM_ALAN_ADI` varchar(40) DEFAULT NULL,
+  `HS_KASAID` int(11) DEFAULT NULL,
+  `HS_KASIYERID` int(11) DEFAULT NULL,
+  `OKCBASILDI` tinyint(1) DEFAULT NULL,
+  `KAMPANYA_KALEMISKTOPLAM` decimal(18,2) NOT NULL,
+  `KAMPANYA_ISKTUTAR` decimal(18,2) NOT NULL,
+  `TYPEID` varchar(20) NOT NULL,
+  `EIRSALIYE` varchar(255) DEFAULT NULL,
+  `EIRSALIYE_UUID` varchar(100) DEFAULT NULL,
+  `EIRSALIYE_ID` int(11) DEFAULT NULL,
+  `TASIYICICARIID` int(11) DEFAULT NULL,
+  `TASIYICIARACPLAKA` varchar(20) DEFAULT NULL,
+  `TASIYICIDORSEPLAKA` text DEFAULT NULL,
+  `SURUCU` text DEFAULT NULL,
+  `HS_FIS_UUID` varchar(36) NOT NULL,
+  `HS_VARDIYA_UUID` varchar(36) DEFAULT NULL,
+  `FATURALANACAK` int(11) DEFAULT NULL,
+  `EIRSALIYE_IADEOWNERID` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+
+--
 -- Tablo için tablo yapısı `stk_fis_har`
 --
 
@@ -1481,6 +1633,12 @@ CREATE TABLE `user_permissions` (
 --
 
 --
+-- Tablo için indeksler `adres`
+--
+ALTER TABLE `adres`
+  ADD PRIMARY KEY (`ID`,`KOD`);
+
+--
 -- Tablo için indeksler `alternative_groups`
 --
 ALTER TABLE `alternative_groups`
@@ -1663,6 +1821,12 @@ ALTER TABLE `sip_har`
 -- Tablo için indeksler `stk_birim`
 --
 ALTER TABLE `stk_birim`
+  ADD PRIMARY KEY (`ID`);
+
+--
+-- Tablo için indeksler `stk_fis`
+--
+ALTER TABLE `stk_fis`
   ADD PRIMARY KEY (`ID`);
 
 --
@@ -1934,20 +2098,3 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
---
--- Tablo için tablo yapısı `barkodlar`
---
-
-CREATE TABLE `barkodlar` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `stok_id` int(11) NOT NULL,
-  `barkod` varchar(50) NOT NULL,
-  `aktif` tinyint(1) NOT NULL DEFAULT 1,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `barkod` (`barkod`),
-  KEY `stok_id` (`stok_id`),
-  CONSTRAINT `barkodlar_ibfk_1` FOREIGN KEY (`stok_id`) REFERENCES `stok` (`ID`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
