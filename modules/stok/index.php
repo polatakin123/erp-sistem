@@ -67,10 +67,11 @@ if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp
     // Kritik stok sayısını al - STK_URUN_MIKTAR'ı kullanarak
     $kritikStokSayisi = 0;
     try {
-        $stmt = $db->query("SELECT COUNT(*) FROM stok s 
-                             LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID
-                             WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1");
-        
+        $stmt = $db->query("
+            SELECT COUNT(*) FROM stok s
+            LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+            WHERE sum.MIKTAR <= s.MIN_STOK AND s.DURUM = 1
+        ");
         $kritikStokSayisi = $stmt->fetchColumn();
         $_SESSION['cache_kritik_stok_sayisi'] = $kritikStokSayisi;
     } catch (PDOException $e) {
@@ -82,15 +83,14 @@ if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp
     // Toplam stok değerini al - STK_URUN_MIKTAR'ı kullanarak
     $toplamStokDegeri = 0;
     try {
-        // Önce stk_fiyat tablosundan alış fiyatlarını alıp birleştirelim
-        $stmt = $db->query("SELECT SUM(m.MIKTAR * f.FIYAT) AS toplam_deger 
-                             FROM stok s 
-                             LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID
-                             LEFT JOIN stk_fiyat f ON s.ID = f.STOKID AND f.TIP = 'A'
-                             WHERE s.DURUM = 1");
-        
-        $result = $stmt->fetch();
-        $toplamStokDegeri = $result['toplam_deger'] ?? 0;
+        $stmt = $db->query("
+            SELECT SUM(sum.MIKTAR * sfA.FIYAT) AS toplam_deger 
+            FROM stok s
+            LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+            LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
+            WHERE s.DURUM = 1
+        ");
+        $toplamStokDegeri = $stmt->fetchColumn();
         $_SESSION['cache_toplam_stok_degeri'] = $toplamStokDegeri;
     } catch (PDOException $e) {
         // Hata durumunda
@@ -113,11 +113,14 @@ if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp
     // Kritik stok seviyesindeki ürünleri al
     $kritikStokUrunler = [];
     try {
-        $stmt = $db->query("SELECT s.*, m.MIKTAR 
-                            FROM stok s 
-                            LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID 
-                            WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1 
-                            ORDER BY m.MIKTAR ASC LIMIT 5");
+        $stmt = $db->query("
+            SELECT s.*, s.ADI as name, s.KOD as code, sum.MIKTAR as current_stock, s.MIN_STOK as min_stock
+            FROM stok s
+            LEFT JOIN stk_urun_miktar sum ON s.ID = sum.URUN_ID
+            WHERE sum.MIKTAR <= s.MIN_STOK AND s.DURUM = 1 
+            ORDER BY sum.MIKTAR ASC 
+            LIMIT 5
+        ");
         $kritikStokUrunler = $stmt->fetchAll();
         $_SESSION['cache_kritik_stok_urunler'] = $kritikStokUrunler;
     } catch (PDOException $e) {

@@ -453,9 +453,9 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
                     // Her ürün için stok miktarını ata
                     foreach ($urunler as &$urun) {
                         $urunId = $urun['ID'];
-                        $urun['GUNCEL_STOK'] = isset($stokMiktarlari[$urunId]) ? $stokMiktarlari[$urunId] : 0;
+                        $urun['current_stock'] = isset($stokMiktarlari[$urunId]) ? $stokMiktarlari[$urunId] : 0;
                         if ($debug) {
-                            debugEcho("Ürün ID " . $urunId . " için stok miktarı: " . $urun['GUNCEL_STOK']);
+                            debugEcho("Ürün ID " . $urunId . " için stok miktarı: " . $urun['current_stock']);
                         }
                     }
                 }
@@ -633,9 +633,9 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
                     // Her ürün için stok miktarını ata
                     foreach ($urunler as &$urun) {
                         $urunId = $urun['ID'];
-                        $urun['GUNCEL_STOK'] = isset($stokMiktarlari[$urunId]) ? $stokMiktarlari[$urunId] : 0;
+                        $urun['current_stock'] = isset($stokMiktarlari[$urunId]) ? $stokMiktarlari[$urunId] : 0;
                         if ($debug) {
-                            debugEcho("Ürün ID " . $urunId . " için stok miktarı: " . $urun['GUNCEL_STOK']);
+                            debugEcho("Ürün ID " . $urunId . " için stok miktarı: " . $urun['current_stock']);
                         }
                     }
                 }
@@ -907,9 +907,9 @@ if (isset($error)) {
                                             <td><?php echo isset($urun['TIP']) ? htmlspecialchars($urun['TIP']) : ''; ?></td>
                                             <td><?php echo isset($urun['BIRIM']) ? htmlspecialchars($urun['BIRIM']) : '-'; ?></td>
                                             <td class="text-end">
-                                                <?php if (isset($urun['GUNCEL_STOK'])): ?>
+                                                <?php if (isset($urun['current_stock'])): ?>
                                                     <?php
-                                                    $guncel_stok = (float)$urun['GUNCEL_STOK'];
+                                                    $guncel_stok = (float)$urun['current_stock'];
                                                     $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
                                                     
                                                     if ($sistem_stok != $guncel_stok):

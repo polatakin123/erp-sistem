@@ -203,14 +203,20 @@ if (isset($_GET['q']) && isset($_GET['page'])) {
                         $guncel_stok = isset($stokMiktarlari[$urun['ID']]) ? $stokMiktarlari[$urun['ID']] : 0;
                         $sistem_stok = isset($urun['MIKTAR']) ? (float)$urun['MIKTAR'] : 0;
                         
-                        // Stok hücresi içeriğini hazırla
-                        $stok_hucresi = '';
+                        // Birim bilgisi
+                        $birim = isset($urun['BIRIM']) ? $urun['BIRIM'] : 'Adet';
+                        
+                        // Stok hücresi
                         if ($sistem_stok != $guncel_stok) {
                             $stok_hucresi = '<span class="text-success">' . number_format($guncel_stok, 2, ',', '.') . '</span>';
-                            $stok_hucresi .= '<br><small class="text-muted">Sistem: ' . number_format($sistem_stok, 2, ',', '.') . '</small>';
                         } else {
                             $stok_hucresi = number_format($guncel_stok, 2, ',', '.');
                         }
+                        
+                        // Stok durumu
+                        $stok_durumu = ($guncel_stok <= $urun['MIN_STOK']) ? 
+                            '<span class="badge bg-danger">Kritik</span>' : 
+                            '<span class="badge bg-success">Normal</span>';
                         
                         $html .= '<tr>
                             <td class="text-center">
@@ -223,11 +229,7 @@ if (isset($_GET['q']) && isset($_GET['page'])) {
                             <td class="text-end">' . (isset($urun['ALIS_FIYAT']) ? number_format($urun['ALIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
                             <td class="text-end">' . (isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00') . ' TL</td>
                             <td class="text-center">' . $stok_hucresi . '</td>
-                            <td class="text-center">
-                                <span class="badge bg-' . ($urun['DURUM'] == 1 ? 'success' : 'danger') . '">
-                                    ' . ($urun['DURUM'] == 1 ? 'Aktif' : 'Pasif') . '
-                                </span>
-                            </td>
+                            <td class="text-center">' . $stok_durumu . '</td>
                             <td class="text-center">
                                 <div class="btn-group">
                                     <a href="urun_detay.php?id=' . $urun['ID'] . '" class="btn btn-sm btn-info">
