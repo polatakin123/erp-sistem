@@ -43,7 +43,7 @@ $offset = ($sayfa - 1) * $limit;
 // Carileri al
 try {
     // Toplam kayıt sayısını al
-    $sql_count = "SELECT COUNT(*) FROM cariler WHERE 1=1";
+    $sql_count = "SELECT COUNT(*) FROM cari WHERE 1=1";
     $params = [];
     
     // Arama parametreleri için hazırlık
@@ -54,40 +54,39 @@ try {
 
     if (!empty($aranan)) {
         $sql_count .= " AND (
-            cari_kodu LIKE ? OR 
-            firma_unvani LIKE ? OR 
-            yetkili_ad LIKE ? OR 
-            yetkili_soyad LIKE ? OR 
-            telefon LIKE ? OR 
-            email LIKE ? OR 
-            vergi_no LIKE ?
+            KOD LIKE ? OR 
+            ADI LIKE ? OR 
+            YETKILI_ADI LIKE ? OR 
+            YETKILI_SOYADI LIKE ? OR 
+            TELEFON LIKE ? OR 
+            EMAIL LIKE ?
         )";
         // Her bir LIKE için aynı değeri ekle
-        $params = array_merge($params, array_fill(0, 7, $search_param));
+        $params = array_merge($params, array_fill(0, 6, $search_param));
     }
 
     if (!empty($cari_tipi)) {
-        $sql_count .= " AND cari_tipi = ?";
+        $sql_count .= " AND TIP = ?";
         $params[] = $cari_tipi_param;
     }
 
     if (!empty($durum)) {
-        $sql_count .= " AND durum = ?";
+        $sql_count .= " AND DURUM = ?";
         $params[] = $durum_param;
     }
 
     if (!empty($il)) {
-        $sql_count .= " AND il = ?";
+        $sql_count .= " AND IL = ?";
         $params[] = $il_param;
     }
 
     if (!empty($bakiye_durum)) {
         if ($bakiye_durum == 'borclu') {
-            $sql_count .= " AND bakiye > 0";
+            $sql_count .= " AND BAKIYE > 0";
         } elseif ($bakiye_durum == 'alacakli') {
-            $sql_count .= " AND bakiye < 0";
+            $sql_count .= " AND BAKIYE < 0";
         } elseif ($bakiye_durum == 'notr') {
-            $sql_count .= " AND bakiye = 0";
+            $sql_count .= " AND BAKIYE = 0";
         }
     }
 
@@ -97,49 +96,48 @@ try {
     $toplam_sayfa = ceil($toplam_kayit / $limit);
 
     // Carileri al
-    $sql = "SELECT * FROM cariler WHERE 1=1";
+    $sql = "SELECT * FROM cari WHERE 1=1";
     $params = [];
 
     if (!empty($aranan)) {
         $sql .= " AND (
-            cari_kodu LIKE ? OR 
-            firma_unvani LIKE ? OR 
-            yetkili_ad LIKE ? OR 
-            yetkili_soyad LIKE ? OR 
-            telefon LIKE ? OR 
-            email LIKE ? OR 
-            vergi_no LIKE ?
+            KOD LIKE ? OR 
+            ADI LIKE ? OR 
+            YETKILI_ADI LIKE ? OR 
+            YETKILI_SOYADI LIKE ? OR 
+            TELEFON LIKE ? OR 
+            EMAIL LIKE ?
         )";
         // Her bir LIKE için aynı değeri ekle
-        $params = array_merge($params, array_fill(0, 7, $search_param));
+        $params = array_merge($params, array_fill(0, 6, $search_param));
     }
 
     if (!empty($cari_tipi)) {
-        $sql .= " AND cari_tipi = ?";
+        $sql .= " AND TIP = ?";
         $params[] = $cari_tipi_param;
     }
 
     if (!empty($durum)) {
-        $sql .= " AND durum = ?";
+        $sql .= " AND DURUM = ?";
         $params[] = $durum_param;
     }
 
     if (!empty($il)) {
-        $sql .= " AND il = ?";
+        $sql .= " AND IL = ?";
         $params[] = $il_param;
     }
 
     if (!empty($bakiye_durum)) {
         if ($bakiye_durum == 'borclu') {
-            $sql .= " AND bakiye > 0";
+            $sql .= " AND BAKIYE > 0";
         } elseif ($bakiye_durum == 'alacakli') {
-            $sql .= " AND bakiye < 0";
+            $sql .= " AND BAKIYE < 0";
         } elseif ($bakiye_durum == 'notr') {
-            $sql .= " AND bakiye = 0";
+            $sql .= " AND BAKIYE = 0";
         }
     }
 
-    $sql .= " ORDER BY firma_unvani ASC LIMIT " . (int)$offset . ", " . (int)$limit;
+    $sql .= " ORDER BY ADI ASC LIMIT " . (int)$offset . ", " . (int)$limit;
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
@@ -151,21 +149,21 @@ try {
     $toplam_alacak = 0;
     $toplam_borc = 0;
 
-    $stmt = $db->query("SELECT COUNT(*) FROM cariler WHERE cari_tipi IN ('musteri', 'her_ikisi')");
+    $stmt = $db->query("SELECT COUNT(*) FROM cari WHERE TIP IN ('musteri', 'her_ikisi')");
     $musteri_sayisi = $stmt->fetchColumn();
 
-    $stmt = $db->query("SELECT COUNT(*) FROM cariler WHERE cari_tipi IN ('tedarikci', 'her_ikisi')");
+    $stmt = $db->query("SELECT COUNT(*) FROM cari WHERE TIP IN ('tedarikci', 'her_ikisi')");
     $tedarikci_sayisi = $stmt->fetchColumn();
 
-    $stmt = $db->query("SELECT SUM(CASE WHEN bakiye < 0 THEN bakiye ELSE 0 END) AS toplam_alacak, 
-                                SUM(CASE WHEN bakiye > 0 THEN bakiye ELSE 0 END) AS toplam_borc
-                         FROM cariler");
+    $stmt = $db->query("SELECT SUM(CASE WHEN BAKIYE < 0 THEN BAKIYE ELSE 0 END) AS toplam_alacak, 
+                                SUM(CASE WHEN BAKIYE > 0 THEN BAKIYE ELSE 0 END) AS toplam_borc
+                         FROM cari");
     $bakiye_bilgileri = $stmt->fetch();
     $toplam_alacak = abs($bakiye_bilgileri['toplam_alacak'] ?: 0);
     $toplam_borc = $bakiye_bilgileri['toplam_borc'] ?: 0;
 
     // İlleri al (filtreleme için)
-    $stmt = $db->query("SELECT DISTINCT il FROM cariler WHERE il IS NOT NULL AND il != '' ORDER BY il");
+    $stmt = $db->query("SELECT DISTINCT IL FROM cari WHERE IL IS NOT NULL AND IL != '' ORDER BY IL");
     $iller = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 } catch (PDOException $e) {
@@ -350,28 +348,28 @@ include_once '../../includes/header.php';
                         <?php if (isset($cariler) && !empty($cariler)): ?>
                             <?php foreach ($cariler as $cari): ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($cari['cari_kodu']); ?></td>
-                                    <td><?php echo htmlspecialchars($cari['firma_unvani']); ?></td>
+                                    <td><?php echo htmlspecialchars($cari['KOD']); ?></td>
+                                    <td><?php echo htmlspecialchars($cari['ADI']); ?></td>
                                     <td>
                                         <?php 
                                             $yetkili = [];
-                                            if (!empty($cari['yetkili_ad'])) $yetkili[] = $cari['yetkili_ad'];
-                                            if (!empty($cari['yetkili_soyad'])) $yetkili[] = $cari['yetkili_soyad'];
+                                            if (!empty($cari['YETKILI_ADI'])) $yetkili[] = $cari['YETKILI_ADI'];
+                                            if (!empty($cari['YETKILI_SOYADI'])) $yetkili[] = $cari['YETKILI_SOYADI'];
                                             echo htmlspecialchars(implode(' ', $yetkili)); 
                                         ?>
                                     </td>
-                                    <td><?php echo htmlspecialchars($cari['telefon']); ?></td>
+                                    <td><?php echo htmlspecialchars($cari['TELEFON']); ?></td>
                                     <td>
                                         <?php 
                                             $konum = [];
-                                            if (!empty($cari['il'])) $konum[] = $cari['il'];
-                                            if (!empty($cari['ilce'])) $konum[] = $cari['ilce'];
+                                            if (!empty($cari['IL'])) $konum[] = $cari['IL'];
+                                            if (!empty($cari['ILCE'])) $konum[] = $cari['ILCE'];
                                             echo htmlspecialchars(implode('/', $konum)); 
                                         ?>
                                     </td>
                                     <td>
                                         <?php 
-                                            switch ($cari['cari_tipi']) {
+                                            switch ($cari['TIP']) {
                                                 case 'musteri':
                                                     echo '<span class="badge bg-primary">Müşteri</span>';
                                                     break;
@@ -384,28 +382,28 @@ include_once '../../includes/header.php';
                                             }
                                         ?>
                                     </td>
-                                    <td class="text-end <?php echo $cari['bakiye'] > 0 ? 'text-danger' : ($cari['bakiye'] < 0 ? 'text-success' : ''); ?>">
-                                        <?php echo number_format(abs($cari['bakiye']), 2, ',', '.'); ?> ₺
-                                        <?php echo $cari['bakiye'] > 0 ? '(B)' : ($cari['bakiye'] < 0 ? '(A)' : ''); ?>
+                                    <td class="text-end <?php echo $cari['BAKIYE'] > 0 ? 'text-danger' : ($cari['BAKIYE'] < 0 ? 'text-success' : ''); ?>">
+                                        <?php echo number_format(abs($cari['BAKIYE'] ?? 0), 2, ',', '.'); ?> ₺
+                                        <?php echo $cari['BAKIYE'] > 0 ? '(B)' : ($cari['BAKIYE'] < 0 ? '(A)' : ''); ?>
                                     </td>
                                     <td class="text-center">
-                                        <?php if ($cari['durum'] == 1): ?>
+                                        <?php if ($cari['DURUM'] == 1): ?>
                                             <span class="badge bg-success">Aktif</span>
                                         <?php else: ?>
                                             <span class="badge bg-danger">Pasif</span>
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-center">
-                                        <a href="cari_detay.php?id=<?php echo $cari['id']; ?>" class="btn btn-info btn-sm" title="Detay">
+                                        <a href="cari_detay.php?id=<?php echo $cari['ID']; ?>" class="btn btn-info btn-sm" title="Detay">
                                             <i class="fas fa-eye"></i>
                                         </a>
-                                        <a href="cari_duzenle.php?id=<?php echo $cari['id']; ?>" class="btn btn-primary btn-sm" title="Düzenle">
+                                        <a href="cari_duzenle.php?id=<?php echo $cari['ID']; ?>" class="btn btn-primary btn-sm" title="Düzenle">
                                             <i class="fas fa-edit"></i>
                                         </a>
-                                        <a href="javascript:void(0);" onclick="if(confirm('Bu cariyi silmek istediğinize emin misiniz?')) window.location.href='cari_sil.php?id=<?php echo $cari['id']; ?>';" class="btn btn-danger btn-sm" title="Sil">
+                                        <a href="javascript:void(0);" onclick="if(confirm('Bu cariyi silmek istediğinize emin misiniz?')) window.location.href='cari_sil.php?id=<?php echo $cari['ID']; ?>';" class="btn btn-danger btn-sm" title="Sil">
                                             <i class="fas fa-trash"></i>
                                         </a>
-                                        <a href="cari_ekstre.php?id=<?php echo $cari['id']; ?>" class="btn btn-warning btn-sm" title="Ekstre">
+                                        <a href="cari_ekstre.php?id=<?php echo $cari['ID']; ?>" class="btn btn-warning btn-sm" title="Ekstre">
                                             <i class="fas fa-file-alt"></i>
                                         </a>
                                     </td>

@@ -25,6 +25,14 @@ $pageTitle = "Yeni Cari Ekle";
 $error = "";
 $success = "";
 
+// Form değişkenlerinin varsayılan değerlerini tanımla
+$cari_tipi = 'musteri';
+$firma_unvani = $yetkili_ad = $yetkili_soyad = $vergi_dairesi = $vergi_no = $tc_kimlik_no = '';
+$adres = $il = $ilce = $posta_kodu = $telefon = $cep_telefon = $faks = $email = $web_sitesi = '';
+$banka_adi = $sube_adi = $hesap_no = $iban = $kategori = $aciklama = '';
+$risk_limiti = $odeme_vade_suresi = $iskonto_orani = 0;
+$durum = 1;
+
 // Form gönderildi mi kontrol et
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // Form verilerini al ve temizle
@@ -76,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $prefix = $cari_tipi == 'musteri' ? 'MUS' : ($cari_tipi == 'tedarikci' ? 'TED' : 'HER');
             
             // Son kodu al
-            $stmt = $db->query("SELECT cari_kodu FROM cariler WHERE cari_kodu LIKE '{$prefix}%' ORDER BY cari_kodu DESC LIMIT 1");
+            $stmt = $db->query("SELECT KOD FROM cari WHERE KOD LIKE '{$prefix}%' ORDER BY KOD DESC LIMIT 1");
             $last_code = $stmt->fetchColumn();
             
             if ($last_code) {
@@ -90,20 +98,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             // Cari ekle
-            $sql = "INSERT INTO cariler (
-                cari_kodu, cari_tipi, firma_unvani, yetkili_ad, yetkili_soyad, 
-                vergi_dairesi, vergi_no, tc_kimlik_no, adres, il, ilce, posta_kodu, 
-                telefon, cep_telefon, faks, email, web_sitesi, 
-                banka_adi, sube_adi, hesap_no, iban, 
-                risk_limiti, odeme_vade_suresi, iskonto_orani, bakiye, 
-                kategori, aciklama, durum, created_by, created_at
+            $sql = "INSERT INTO cari (
+                KOD, TIP, ADI, YETKILI_ADI, YETKILI_SOYADI, 
+                ADRES, IL, ILCE, POSTA_KODU, 
+                TELEFON, CEPNO, FAX, EMAIL, WEB, 
+                LIMITTL, VADE, DURUM, NOTLAR
             ) VALUES (
                 :cari_kodu, :cari_tipi, :firma_unvani, :yetkili_ad, :yetkili_soyad, 
-                :vergi_dairesi, :vergi_no, :tc_kimlik_no, :adres, :il, :ilce, :posta_kodu, 
+                :adres, :il, :ilce, :posta_kodu, 
                 :telefon, :cep_telefon, :faks, :email, :web_sitesi, 
-                :banka_adi, :sube_adi, :hesap_no, :iban, 
-                :risk_limiti, :odeme_vade_suresi, :iskonto_orani, 0.00, 
-                :kategori, :aciklama, :durum, :created_by, NOW()
+                :risk_limiti, :odeme_vade_suresi, :durum, :aciklama
             )";
             
             $stmt = $db->prepare($sql);
@@ -112,9 +116,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bindParam(':firma_unvani', $firma_unvani);
             $stmt->bindParam(':yetkili_ad', $yetkili_ad);
             $stmt->bindParam(':yetkili_soyad', $yetkili_soyad);
-            $stmt->bindParam(':vergi_dairesi', $vergi_dairesi);
-            $stmt->bindParam(':vergi_no', $vergi_no);
-            $stmt->bindParam(':tc_kimlik_no', $tc_kimlik_no);
             $stmt->bindParam(':adres', $adres);
             $stmt->bindParam(':il', $il);
             $stmt->bindParam(':ilce', $ilce);
@@ -124,17 +125,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bindParam(':faks', $faks);
             $stmt->bindParam(':email', $email);
             $stmt->bindParam(':web_sitesi', $web_sitesi);
-            $stmt->bindParam(':banka_adi', $banka_adi);
-            $stmt->bindParam(':sube_adi', $sube_adi);
-            $stmt->bindParam(':hesap_no', $hesap_no);
-            $stmt->bindParam(':iban', $iban);
             $stmt->bindParam(':risk_limiti', $risk_limiti);
             $stmt->bindParam(':odeme_vade_suresi', $odeme_vade_suresi);
-            $stmt->bindParam(':iskonto_orani', $iskonto_orani);
-            $stmt->bindParam(':kategori', $kategori);
-            $stmt->bindParam(':aciklama', $aciklama);
             $stmt->bindParam(':durum', $durum);
-            $stmt->bindParam(':created_by', $_SESSION['user_id'], PDO::PARAM_INT);
+            $stmt->bindParam(':aciklama', $aciklama);
             
             if ($stmt->execute()) {
                 $cari_id = $db->lastInsertId();

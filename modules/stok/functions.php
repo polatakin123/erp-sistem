@@ -123,4 +123,59 @@ function processOEMNumbers($db, $product_id, $oem_no, $clear_existing = false) {
             'groups_updated' => 0
         ];
     }
+}
+
+/**
+ * EAN-13 barkod oluşturur
+ * 
+ * @param string $prefix Barkodu başlangıç rakamları (ülke kodu vs.)
+ * @return string EAN-13 formatında oluşturulan barkod
+ */
+function generateEAN13($prefix = '9670000', $db = null) {
+    // EAN-13 formatı toplam 13 haneden oluşur
+    // İlk 12 hane + 1 kontrol hanesi
+    
+    // Prefix zaten belirtilmiş (ülke/firma kodu gibi)
+    $code = $prefix;
+    
+    // Son kullanılan seri numarasını bul
+    $last_number = 0;
+    
+    if ($db) {
+        try {
+            $stmt = $db->prepare("SELECT MAX(KOD) as max_code FROM stok WHERE KOD LIKE ?");
+            $stmt->execute([$prefix . '%']);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result && $result['max_code']) {
+                // Prefix'i kaldır ve sıra numarasını al
+                $last_code = $result['max_code'];
+                $sequence_part = substr($last_code, strlen($prefix), -1); // Son kontrolsüz rakamı da çıkar
+                $last_number = (int)$sequence_part;
+            }
+        } catch (Exception $e) {
+            // Hata durumunda 0'dan başla
+            $last_number = 0;
+        }
+    }
+    
+    // Sıradaki numarayı oluştur
+    $next_number = $last_number + 1;
+    
+    // Kalan haneleri sıfırla doldur ve sıra numarasını ekle
+    $sequence_length = 12 - strlen($prefix);
+    $sequence_str = str_pad($next_number, $sequence_length, '0', STR_PAD_LEFT);
+    
+    // Tam kodu oluştur (prefix + sıra numarası)
+    $code = $prefix . $sequence_str;
+    
+    // Kontrol hanesi hesaplama (EAN-13 algoritması)
+    $sum = 0;
+    for ($i = 0; $i < 12; $i++) {
+        $sum += $code[$i] * ($i % 2 == 0 ? 1 : 3);
+    }
+    $checksum = (10 - ($sum % 10)) % 10;
+    
+    // Son kodu döndür (12 hane + kontrol hanesi)
+    return $code . $checksum;
 } 

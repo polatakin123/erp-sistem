@@ -1934,3 +1934,20 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+--
+-- Tablo için tablo yapısı `barkodlar`
+--
+
+CREATE TABLE `barkodlar` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stok_id` int(11) NOT NULL,
+  `barkod` varchar(50) NOT NULL,
+  `aktif` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `barkod` (`barkod`),
+  KEY `stok_id` (`stok_id`),
+  CONSTRAINT `barkodlar_ibfk_1` FOREIGN KEY (`stok_id`) REFERENCES `stok` (`ID`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

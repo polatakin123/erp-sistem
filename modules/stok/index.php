@@ -68,45 +68,34 @@ if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp
     $kritikStokSayisi = 0;
     try {
         $stmt = $db->query("SELECT COUNT(*) FROM stok s 
-                             LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID
+                             LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID
                              WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1");
         
         $kritikStokSayisi = $stmt->fetchColumn();
         $_SESSION['cache_kritik_stok_sayisi'] = $kritikStokSayisi;
     } catch (PDOException $e) {
-        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
-        try {
-            $stmt = $db->query("SELECT COUNT(*) FROM stok WHERE GUNCEL_STOK <= MIN_STOK AND DURUM = 1");
-            $kritikStokSayisi = $stmt->fetchColumn();
-            $_SESSION['cache_kritik_stok_sayisi'] = $kritikStokSayisi;
-        } catch (PDOException $e2) {
-            $_SESSION['cache_kritik_stok_sayisi'] = 0;
-            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
-        }
+        // Hata durumunda
+        $_SESSION['cache_kritik_stok_sayisi'] = 0;
+        echo errorMessage("Veritabanı hatası: " . $e->getMessage());
     }
     
     // Toplam stok değerini al - STK_URUN_MIKTAR'ı kullanarak
     $toplamStokDegeri = 0;
     try {
-        $stmt = $db->query("SELECT SUM(m.MIKTAR * s.ALIS_FIYAT) AS toplam_deger 
+        // Önce stk_fiyat tablosundan alış fiyatlarını alıp birleştirelim
+        $stmt = $db->query("SELECT SUM(m.MIKTAR * f.FIYAT) AS toplam_deger 
                              FROM stok s 
-                             LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID
+                             LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID
+                             LEFT JOIN stk_fiyat f ON s.ID = f.STOKID AND f.TIP = 'A'
                              WHERE s.DURUM = 1");
         
         $result = $stmt->fetch();
         $toplamStokDegeri = $result['toplam_deger'] ?? 0;
         $_SESSION['cache_toplam_stok_degeri'] = $toplamStokDegeri;
     } catch (PDOException $e) {
-        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
-        try {
-            $stmt = $db->query("SELECT SUM(GUNCEL_STOK * ALIS_FIYAT) AS toplam_deger FROM stok WHERE DURUM = 1");
-            $result = $stmt->fetch();
-            $toplamStokDegeri = $result['toplam_deger'] ?? 0;
-            $_SESSION['cache_toplam_stok_degeri'] = $toplamStokDegeri;
-        } catch (PDOException $e2) {
-            $_SESSION['cache_toplam_stok_degeri'] = 0;
-            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
-        }
+        // Hata durumunda
+        $_SESSION['cache_toplam_stok_degeri'] = 0;
+        echo errorMessage("Veritabanı hatası: " . $e->getMessage());
     }
     
     // Son eklenen ürünleri al
@@ -126,22 +115,15 @@ if (!isset($_SESSION['cache_timestamp']) || (time() - $_SESSION['cache_timestamp
     try {
         $stmt = $db->query("SELECT s.*, m.MIKTAR 
                             FROM stok s 
-                            LEFT JOIN STK_URUN_MIKTAR m ON s.ID = m.URUN_ID 
+                            LEFT JOIN stk_urun_miktar m ON s.ID = m.URUN_ID 
                             WHERE m.MIKTAR <= s.MIN_STOK AND s.DURUM = 1 
                             ORDER BY m.MIKTAR ASC LIMIT 5");
         $kritikStokUrunler = $stmt->fetchAll();
         $_SESSION['cache_kritik_stok_urunler'] = $kritikStokUrunler;
     } catch (PDOException $e) {
-        // STK_URUN_MIKTAR tablosu yoksa veya bir hata oluşursa, eski metodu kullan
-        try {
-            $stmt = $db->query("SELECT * FROM stok WHERE GUNCEL_STOK <= MIN_STOK AND DURUM = 1 ORDER BY GUNCEL_STOK ASC LIMIT 5");
-            $kritikStokUrunler = $stmt->fetchAll();
-            $_SESSION['cache_kritik_stok_urunler'] = $kritikStokUrunler;
-        } catch (PDOException $e2) {
-            // Hata durumunda
-            $_SESSION['cache_kritik_stok_urunler'] = [];
-            echo errorMessage("Veritabanı hatası: " . $e2->getMessage());
-        }
+        // Hata durumunda
+        $_SESSION['cache_kritik_stok_urunler'] = [];
+        echo errorMessage("Veritabanı hatası: " . $e->getMessage());
     }
     
     // Cache oluşturulduğuna dair mesaj
