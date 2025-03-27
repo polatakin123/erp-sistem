@@ -7,10 +7,10 @@
  */
 
 // Hata raporlama ayarları
-ini_set('display_errors', 0);
-ini_set('display_startup_errors', 0);
-error_reporting(0);
-$debug_mode = false; // Debug modu kapalı
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+$debug_mode = true; // Debug modu açık
 
 // Oturum başlat
 session_start();
@@ -59,10 +59,11 @@ try {
             YETKILI_ADI LIKE ? OR 
             YETKILI_SOYADI LIKE ? OR 
             TELEFON LIKE ? OR 
-            EMAIL LIKE ?
+            EMAIL LIKE ? OR
+            VERGI_NO LIKE ?
         )";
         // Her bir LIKE için aynı değeri ekle
-        $params = array_merge($params, array_fill(0, 6, $search_param));
+        $params = array_merge($params, array_fill(0, 7, $search_param));
     }
 
     if (!empty($cari_tipi)) {
@@ -106,10 +107,11 @@ try {
             YETKILI_ADI LIKE ? OR 
             YETKILI_SOYADI LIKE ? OR 
             TELEFON LIKE ? OR 
-            EMAIL LIKE ?
+            EMAIL LIKE ? OR
+            VERGI_NO LIKE ?
         )";
         // Her bir LIKE için aynı değeri ekle
-        $params = array_merge($params, array_fill(0, 6, $search_param));
+        $params = array_merge($params, array_fill(0, 7, $search_param));
     }
 
     if (!empty($cari_tipi)) {
@@ -183,6 +185,7 @@ include_once '../../includes/header.php';
             <div class="btn-group me-2">
                 <a href="cari_ekle.php" class="btn btn-sm btn-outline-primary">Yeni Cari Ekle</a>
                 <a href="cari_arama.php" class="btn btn-sm btn-outline-info">Detaylı Arama</a>
+                <a href="cari_hareketleri.php" class="btn btn-sm btn-outline-secondary">Cari Hareketleri</a>
                 <a href="export.php" class="btn btn-sm btn-outline-secondary">Dışa Aktar</a>
             </div>
         </div>

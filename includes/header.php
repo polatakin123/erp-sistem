@@ -41,72 +41,380 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
     
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
+    <!-- Bootstrap JS - Doğru sırada yüklenmesi önemli -->
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
+    
+    <style>
+        /* Navbar ve içerik stillerini doğrudan header'da tanımlıyoruz */
+        body, html {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            font-size: .875rem;
+        }
+        
+        /* Sabit header */
+        .navbar {
+            padding: 0.5rem 1rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1030;
+            background-color: #fff;
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+            padding: 0.5rem 1rem;
+        }
+        
+        /* Ana içerik alanı */
+        main {
+            margin-top: 56px; /* Navbar yüksekliği */
+            padding: 1rem;
+        }
+        
+        /* Dropdown menü stilleri */
+        .navbar-nav .dropdown-menu {
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            margin-top: 0;
+            display: none;
+        }
+        
+        /* Hover ile dropdown menüyü göster */
+        .nav-item.dropdown:hover .dropdown-menu {
+            display: block;
+        }
+        
+        .nav-link {
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .nav-link i {
+            margin-right: 0.5rem;
+            width: 20px;
+            text-align: center;
+        }
+        
+        .dropdown-item i {
+            margin-right: 0.5rem;
+            width: 20px;
+            text-align: center;
+        }
+        
+        .navbar-light .navbar-nav .nav-link {
+            color: rgba(0, 0, 0, 0.7);
+        }
+        
+        .navbar-light .navbar-nav .nav-link.active {
+            color: #2470dc;
+            background-color: rgba(36, 112, 220, 0.1);
+        }
+        
+        /* Dropdown menüler için özel stiller */
+        .dropdown-menu {
+            border: none;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            border-radius: 0.5rem;
+        }
+        
+        .dropdown-item {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .dropdown-item:hover, .dropdown-item:focus {
+            background-color: rgba(36, 112, 220, 0.1);
+            color: #2470dc;
+        }
+        
+        /* Navbar ikinci satır */
+        .navbar-second-row {
+            top: 56px;
+            position: fixed;
+            width: 100%;
+            z-index: 1020;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 0.5rem 1rem;
+        }
+        
+        /* Bildirim badge */
+        .badge {
+            position: absolute;
+            top: 0;
+            right: 0.2rem;
+            font-size: 0.6rem;
+        }
+        
+        .nav-link.has-badge {
+            position: relative;
+        }
+        
+        /* Mobil menü ayarlamaları */
+        @media (max-width: 991.98px) {
+            .navbar-collapse {
+                max-height: calc(100vh - 56px);
+                overflow-y: auto;
+            }
+            
+            .navbar-toggler {
+                border: none;
+                padding: 0.25rem;
+            }
+            
+            .navbar-toggler:focus {
+                box-shadow: none;
+            }
+            
+            .dropdown-menu {
+                border: none;
+                box-shadow: none;
+                padding-left: 1.5rem;
+            }
+            
+            /* Mobilde hover yerine tıklama ile çalışsın */
+            .nav-item.dropdown:hover .dropdown-menu {
+                display: none;
+            }
+            
+            .nav-item.dropdown.show .dropdown-menu {
+                display: block;
+            }
+            
+            .nav-item.dropdown {
+                display: block;
+                width: 100%;
+            }
+            
+            .navbar-second-row .container-fluid {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .navbar-second-row form {
+                margin-bottom: 0.5rem;
+                width: 100%;
+            }
+        }
+    </style>
+
+<script>
+    // Sayfa yüklendiğinde çalışacak kodlar
+    document.addEventListener("DOMContentLoaded", function() {
+        // Mobil cihazlar için
+        if (window.innerWidth < 992) {
+            // Dropdown toggle öğeleri
+            document.querySelectorAll('.dropdown-toggle').forEach(function(element) {
+                element.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var parent = this.parentElement;
+                    var dropdown = parent.querySelector('.dropdown-menu');
+                    
+                    // Tüm dropdown menüleri kapat
+                    document.querySelectorAll('.nav-item.dropdown').forEach(function(item) {
+                        if (item !== parent) {
+                            item.classList.remove('show');
+                            var menu = item.querySelector('.dropdown-menu');
+                            if (menu) menu.classList.remove('show');
+                        }
+                    });
+                    
+                    // Bu dropdown menüyü toggle et
+                    parent.classList.toggle('show');
+                    dropdown.classList.toggle('show');
+                });
+            });
+        }
+        
+        // Tıklama ile sadece mobilde çalışsın
+        if (window.innerWidth < 992) {
+            // Sayfanın herhangi bir yerine tıklandığında açık menüleri kapat
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.dropdown-menu') && !e.target.classList.contains('dropdown-toggle')) {
+                    document.querySelectorAll('.nav-item.dropdown.show').forEach(function(dropdown) {
+                        dropdown.classList.remove('show');
+                        var menu = dropdown.querySelector('.dropdown-menu');
+                        if (menu) menu.classList.remove('show');
+                    });
+                }
+            });
+        }
+        
+        // Bildirimler butonuna tıklandığında modalı aç
+        document.getElementById("bildirimler").addEventListener("click", function(e) {
+            e.preventDefault();
+            var bildirimlerModal = new bootstrap.Modal(document.getElementById('bildirimlerModal'));
+            bildirimlerModal.show();
+        });
+        
+        // Mesajlar butonuna tıklandığında modalı aç
+        document.getElementById("mesajlar").addEventListener("click", function(e) {
+            e.preventDefault();
+            var mesajlarModal = new bootstrap.Modal(document.getElementById('mesajlarModal'));
+            mesajlarModal.show();
+        });
+    });
+</script>
 </head>
 <body>
-    <!-- Üst Menü -->
-    <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
-        <a class="navbar-brand col-md-auto me-0 px-3" href="<?php echo $rootPath; ?>index.php">ERP Sistem</a>
-        <button class="navbar-toggler position-absolute d-md-none collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <form action="<?php echo $rootPath; ?>modules/stok/urun_arama.php" method="get" style="flex-grow: 1; max-width: 500px;">
-            <input type="hidden" name="arama_modu" value="hizli">
-            <div class="input-group">
-                <input class="form-control form-control-dark border-0" type="text" placeholder="Hızlı Ürün Ara (stok kodu, ürün adı, marka, model)" name="arama" aria-label="Ara">
-                <button class="btn btn-dark border-0" type="submit">
-                    <i class="fas fa-search"></i>
-                </button>
-            </div>
-        </form>
-        <div class="navbar-nav">
-            <div class="nav-item text-nowrap">
-                <a class="nav-link px-3" href="#" id="bildirimler">
-                    <i class="fas fa-bell"></i>
-                    <span class="badge rounded-pill bg-danger">3</span>
-                </a>
-            </div>
-        </div>
-        <div class="navbar-nav">
-            <div class="nav-item text-nowrap">
-                <a class="nav-link px-3" href="#" id="mesajlar">
-                    <i class="fas fa-envelope"></i>
-                    <span class="badge rounded-pill bg-warning">5</span>
-                </a>
-            </div>
-        </div>
-        <div class="navbar-nav">
-            <div class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle px-3" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-user-circle"></i> <?php echo isset($_SESSION['full_name']) ? $_SESSION['full_name'] : 'Kullanıcı'; ?>
-                </a>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                    <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/kullanici_profili.php"><i class="fas fa-user fa-fw"></i> Profil</a></li>
-                    <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/sirket_bilgileri.php"><i class="fas fa-building fa-fw"></i> Şirket Bilgileri</a></li>
-                    <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/sistem_ayarlari.php"><i class="fas fa-cog fa-fw"></i> Sistem Ayarları</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="<?php 
-                    // Modül içinde ise veya ana dizinde ise farklı yollar kullan
-                    if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
-                        // Modül içindeyken aynı dizine logout.php dosyasını gösterir
-                        echo 'logout.php';
-                    } else {
-                        // Ana dizindeyken
-                        echo $rootPath . 'logout.php';
-                    }
-                    ?>"><i class="fas fa-sign-out-alt fa-fw"></i> Çıkış Yap</a></li>
+    <!-- Sabit Header -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="<?php echo $rootPath; ?>index.php">
+                ERP Sistem
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menüyü aç/kapat">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : ''; ?>" href="<?php echo $rootPath; ?>index.php">
+                            <i class="fas fa-tachometer-alt"></i> Ana Sayfa
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/stok/') !== false ? 'active' : ''; ?>" href="#" id="stokDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-boxes"></i> Stok Yönetimi
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="stokDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/index.php"><i class="fas fa-list me-2"></i> Stok Listesi</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/urun_ekle.php"><i class="fas fa-plus me-2"></i> Stok Ekle</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/stok_hareketleri.php"><i class="fas fa-exchange-alt me-2"></i> Stok Hareket</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/stok_rapor.php"><i class="fas fa-chart-bar me-2"></i> Stok Raporu</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/cari/') !== false ? 'active' : ''; ?>" href="#" id="cariDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-address-book"></i> Cari Yönetimi
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="cariDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_arama.php"><i class="fas fa-list me-2"></i> Cari Listesi</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_ekle.php"><i class="fas fa-plus me-2"></i> Cari Ekle</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_rapor.php"><i class="fas fa-chart-bar me-2"></i> Cari Raporu</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/irsaliye/') !== false ? 'active' : ''; ?>" href="#" id="irsaliyeDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-truck"></i> İrsaliye İşlemleri
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="irsaliyeDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_listesi.php"><i class="fas fa-list me-2"></i> İrsaliye Listesi</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_ekle.php"><i class="fas fa-plus me-2"></i> İrsaliye Ekle</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/fatura/') !== false ? 'active' : ''; ?>" href="#" id="faturaDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-file-invoice"></i> Fatura İşlemleri
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="faturaDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/fatura/fatura_listesi.php"><i class="fas fa-list me-2"></i> Fatura Listesi</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/fatura/fatura_ekle.php"><i class="fas fa-plus me-2"></i> Fatura Ekle</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/muhasebe/') !== false ? 'active' : ''; ?>" href="#" id="muhasebeDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-calculator"></i> Muhasebe
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="muhasebeDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/kasa_listesi.php"><i class="fas fa-cash-register me-2"></i> Kasa İşlemleri</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/banka_listesi.php"><i class="fas fa-university me-2"></i> Banka İşlemleri</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/rapor.php"><i class="fas fa-chart-line me-2"></i> Muhasebe Raporu</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/raporlar/') !== false ? 'active' : ''; ?>" href="#" id="raporlarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-chart-bar"></i> Raporlar
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="raporlarDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/satis_raporu.php"><i class="fas fa-chart-line me-2"></i> Satış Raporu</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/stok_raporu.php"><i class="fas fa-chart-pie me-2"></i> Stok Raporu</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/cari_raporu.php"><i class="fas fa-users me-2"></i> Cari Raporu</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Sistem Menüleri -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/kullanici/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/ayarlar/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/yedekleme/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/yardim/') !== false ? 'active' : ''; ?>" href="#" id="sistemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i> Sistem
+                        </a>
+                        <ul class="dropdown-menu shadow" aria-labelledby="sistemDropdown">
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/kullanici/index.php"><i class="fas fa-users me-2"></i> Kullanıcı Yönetimi</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/ayarlar/index.php"><i class="fas fa-cog me-2"></i> Ayarlar</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/yedekleme/index.php"><i class="fas fa-database me-2"></i> Yedekleme</a></li>
+                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/yardim/index.php"><i class="fas fa-question-circle me-2"></i> Yardım</a></li>
+                        </ul>
+                    </li>
                 </ul>
+                
+                <!-- Kullanıcı Dropdown -->
+                <div class="navbar-nav">
+                    <!-- Bildirimler ve Mesajlar -->
+                    <div class="d-flex me-2">
+                        <a class="nav-link" href="#" id="bildirimler">
+                            <i class="fas fa-bell"></i>
+                            <span class="badge rounded-pill bg-danger">3</span>
+                        </a>
+                        <a class="nav-link" href="#" id="mesajlar">
+                            <i class="fas fa-envelope"></i>
+                            <span class="badge rounded-pill bg-primary">2</span>
+                        </a>
+                    </div>
+                    
+                    <div class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-circle"></i> <?php echo isset($_SESSION['full_name']) ? $_SESSION['full_name'] : 'Kullanıcı'; ?>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/kullanici_profili.php"><i class="fas fa-user fa-fw"></i> Profil</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/sirket_bilgileri.php"><i class="fas fa-building fa-fw"></i> Şirket Bilgileri</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/sistem_ayarlari.php"><i class="fas fa-cog fa-fw"></i> Sistem Ayarları</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>logout.php"><i class="fas fa-sign-out-alt fa-fw"></i> Çıkış Yap</a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
-    </header>
+    </nav>
+    
+    <!-- Sabit Hızlı Ürün Arama Formu -->
+    <nav class="navbar navbar-light bg-light border-top navbar-expand-lg navbar-second-row">
+        <div class="container-fluid">
+            <form action="<?php echo $rootPath; ?>modules/stok/urun_arama.php" method="get" class="d-flex flex-grow-1">
+                <input type="hidden" name="arama_modu" value="hizli">
+                <div class="input-group">
+                    <span class="input-group-text bg-transparent border-end-0">
+                        <i class="fas fa-search text-muted"></i>
+                    </span>
+                    <input class="form-control border-start-0" type="text" placeholder="Hızlı ürün arama..." name="arama" aria-label="Ara">
+                    <button class="btn btn-primary" type="submit">
+                        Ara
+                    </button>
+                </div>
+            </form>
+        </div>
+    </nav>
     
     <!-- Ana Konteyner -->
-    <div class="container-fluid px-0">
-        <div class="row g-0">
-            <!-- Sidebar -->
-            <?php include $rootPath . 'includes/sidebar.php'; ?>
-            
-            <!-- Ana İçerik Alanı -->
-            <main class="col">
+    <div class="container-fluid px-0" style="margin-top: 110px;">
+        <!-- Sidebar'ı kaldırdık -->
+        <!-- Ana İçerik Alanı -->
+        <main class="w-100">
     
     <!-- Bildirimler Modal -->
     <div class="modal fade" id="bildirimlerModal" tabindex="-1" aria-labelledby="bildirimlerModalLabel" aria-hidden="true">
@@ -190,44 +498,31 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
         </div>
     </div>
     
-    <!-- Sidebar Toggle Butonu -->
-    <div class="sidebar-toggle d-none d-md-flex" id="sidebarToggle">
-        <i class="fas fa-chevron-left"></i>
-    </div>
-    
     <script>
     $(document).ready(function() {
-        // Bildirimler butonuna tıklandığında modalı aç
-        $("#bildirimler").click(function(e) {
-            e.preventDefault();
-            $("#bildirimlerModal").modal('show');
+        // Dropdown menüler için
+        $('.dropdown-toggle').dropdown();
+        
+        // Dropdown menüleri tıklanabilir hale getir
+        $('.nav-item.dropdown').on('click', function(e) {
+            e.stopPropagation();
+            $('.dropdown-menu', this).toggleClass('show');
         });
         
-        // Mesajlar butonuna tıklandığında modalı aç
-        $("#mesajlar").click(function(e) {
-            e.preventDefault();
-            $("#mesajlarModal").modal('show');
+        // Dropdown menü içindeki öğelere tıklandığında dropdownu kapatma
+        $('.dropdown-item').on('click', function() {
+            $(this).closest('.dropdown-menu').removeClass('show');
         });
         
-        // Sidebar Toggle
-        $("#sidebarToggle").click(function() {
-            $(".sidebar").toggleClass("sidebar-collapsed");
-            
-            // Toggle ikonu değiştir
-            if ($(".sidebar").hasClass("sidebar-collapsed")) {
-                $(this).find("i").removeClass("fa-chevron-left").addClass("fa-chevron-right");
-            } else {
-                $(this).find("i").removeClass("fa-chevron-right").addClass("fa-chevron-left");
+        // Sayfa yüklendiğinde kullanıcı modüllerine göre aktif sınıfı ekle
+        var currentPath = window.location.pathname;
+        
+        $('.nav-link.dropdown-toggle').each(function() {
+            var menuPath = $(this).attr('data-path');
+            if (menuPath && currentPath.includes(menuPath)) {
+                $(this).addClass('active');
             }
-            
-            // Sidebar durumunu localStorage'a kaydet
-            localStorage.setItem("sidebarCollapsed", $(".sidebar").hasClass("sidebar-collapsed"));
         });
-        
-        // Sayfa yüklendiğinde sidebar'ı otomatik olarak daralt
-        $(".sidebar").addClass("sidebar-collapsed");
-        $("#sidebarToggle").find("i").removeClass("fa-chevron-left").addClass("fa-chevron-right");
-        localStorage.setItem("sidebarCollapsed", "true");
     });
     </script>
 </body>

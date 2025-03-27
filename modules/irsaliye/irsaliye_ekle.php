@@ -1,6 +1,7 @@
 <?php
 require_once '../../config/db.php';
 require_once '../../config/auth.php';
+require_once '../../config/helpers.php';
 
 // Oturum kontrolü
 if (!isLoggedIn()) {
@@ -14,8 +15,7 @@ $stmt = $db->query($query);
 $cariler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Stok ürünlerini getir
-$query = "SELECT s.ID, s.KOD as kod, s.ADI as ad, 
-         (SELECT BIRIM_ADI FROM stk_birim WHERE ID = s.BIRIMID) as birim,
+$query = "SELECT s.ID, s.KOD as kod, s.ADI as ad,
          (SELECT FIYAT FROM stk_fiyat WHERE STOKID = s.ID AND TIP = 'S' LIMIT 1) as fiyat
          FROM stok s 
          WHERE s.DURUM = 1 
@@ -23,10 +23,24 @@ $query = "SELECT s.ID, s.KOD as kod, s.ADI as ad,
 $stmt = $db->query($query);
 $urunler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Depoları getir
-$query = "SELECT ID, ADI FROM stk_depo ORDER BY ADI";
-$stmt = $db->query($query);
-$depolar = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Birim bilgilerini ekleyelim
+foreach ($urunler as &$urun) {
+    // Stokun birim bilgisini almak için
+    $birim_query = "SELECT g.KOD as birim 
+                  FROM stok_birim sb 
+                  LEFT JOIN grup g ON sb.BIRIMID = g.ID 
+                  WHERE sb.STOKID = ? 
+                  LIMIT 1";
+    $birim_stmt = $db->prepare($birim_query);
+    $birim_stmt->execute([$urun['ID']]);
+    $birim = $birim_stmt->fetch(PDO::FETCH_ASSOC);
+    $urun['birim'] = $birim ? $birim['birim'] : '';
+}
+
+// Depo değerleri için varsayılan bir değer kullanalım
+$depolar = [
+    ['ID' => 1, 'ADI' => 'Varsayılan Depo']
+];
 
 // İrsaliye numarası oluştur
 $query = "SELECT MAX(CAST(SUBSTRING(FISNO, 3) AS UNSIGNED)) as max_no FROM stk_fis WHERE TIP='İrsaliye'";
@@ -84,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         foreach ($_POST['urun_id'] as $key => $urun_id) {
             if (!empty($urun_id)) {
                 // Ürün birim ID'sini alalım
-                $stmt_birim = $db->prepare("SELECT BIRIMID FROM stok WHERE ID = ?");
+                $stmt_birim = $db->prepare("SELECT sb.BIRIMID FROM stok_birim sb WHERE sb.STOKID = ? LIMIT 1");
                 $stmt_birim->execute([$urun_id]);
                 $birim_id = $stmt_birim->fetchColumn();
 
