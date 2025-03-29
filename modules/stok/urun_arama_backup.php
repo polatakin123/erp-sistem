@@ -7,88 +7,8 @@
 
  require_once '../../config/helpers.php';
 
-// Yukarıdaki require ifadesinde bir sorun varsa, guvenli_sorgu fonksiyonunu doğrudan tanımlayalım
-if (!function_exists('guvenli_sorgu')) {
-    /**
-     * Zaman aşımı kontrollü güvenli sorgu çalıştırma
-     * @param PDO $db Veritabanı bağlantısı
-     * @param string $sql SQL sorgusu
-     * @param array $params Sorgu parametreleri
-     * @param int $timeout Zaman aşımı süresi (saniye)
-     * @return PDOStatement Sorgu sonucu
-     */
-    function guvenli_sorgu($db, $sql, $params = [], $timeout = 5) {
-        // Önceki zaman aşımı ayarını yedekle
-        $db->query("SET @old_max_execution_time = @@max_execution_time");
-        
-        // Yeni zaman aşımı ayarını belirle (milisaniye cinsinden)
-        $db->query("SET SESSION max_execution_time=" . ($timeout * 1000));
-        
-        try {
-            $stmt = $db->prepare($sql);
-            $stmt->execute($params);
-            
-            // Zaman aşımı ayarını geri yükle
-            $db->query("SET SESSION max_execution_time = @old_max_execution_time");
-            
-            return $stmt;
-        } catch (PDOException $e) {
-            // Zaman aşımı ayarını geri yükle
-            $db->query("SET SESSION max_execution_time = @old_max_execution_time");
-            
-            // Hata kodu kontrol et (veritabanı kilitleme/zaman aşımı kodları)
-            if ($e->getCode() == 'HY000' || $e->getCode() == 'S1T00') {
-                // Zaman aşımı hatası
-                error_log("Sorgu zaman aşımı hatası: " . $e->getMessage() . " - SQL: " . $sql);
-                throw new Exception("Sorgu zaman aşımına uğradı. Lütfen daha sonra tekrar deneyin.");
-            } else {
-                // Diğer hatalar
-                error_log("Veritabanı hatası: " . $e->getMessage() . " - SQL: " . $sql);
-                throw $e;
-            }
-        }
-    }
-}
-
-// db_islem_dene fonksiyonu da eksik olabilir
-if (!function_exists('db_islem_dene')) {
-    /**
-     * Döngü kontrolü ile veritabanı işlemi
-     * @param PDO $db Veritabanı bağlantısı
-     * @param callable $callback Çalıştırılacak fonksiyon
-     * @param int $maxTries Maksimum deneme sayısı
-     * @return mixed Fonksiyonun dönüş değeri
-     */
-    function db_islem_dene($db, $callback, $maxTries = 3) {
-        $tries = 0;
-        $lastError = null;
-        
-        while ($tries < $maxTries) {
-            try {
-                return $callback($db);
-            } catch (PDOException $e) {
-                $tries++;
-                $lastError = $e;
-                
-                // Deadlock hatası ise yeniden dene
-                if ($e->getCode() == 40001 || $e->getCode() == 1213) {
-                    // Biraz bekle ve yeniden dene
-                    usleep(rand(500000, 1000000)); // 0.5-1 saniye bekle
-                    continue;
-                } else {
-                    // Diğer hataları hemen fırlat
-                    throw $e;
-                }
-            }
-        }
-        
-        // Maksimum deneme sayısına ulaşıldı
-        throw new Exception("Veritabanı işlemi $maxTries deneme sonrasında başarısız oldu: " . $lastError->getMessage());
-    }
-}
-
 // Debug modu aktif
-$debug = true; // Hata ayıklama modunu açtık
+$debug = false; // Hata ayıklama modunu açtık
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
@@ -100,7 +20,7 @@ function debugEcho($message, $variable = null) {
     global $debug;
     if ($debug) {
         echo '<div style="background-color:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:10px; margin:10px 0; border-radius:5px;">';
-        echo '<strong>DEBUG:</strong> ' . htmlspecialchars($message);
+        echo '<strong>DEBUG:</strong> ' . $message;
         if ($variable !== null) {
             echo '<pre>';
             print_r($variable);
@@ -140,13 +60,9 @@ function searchTermPrepare($term) {
  * @return array Ürün ID'leri ve stok miktarları (key-value array)
  */
 function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
-    global $debug; // Debug değişkenini küresel değişken olarak tanımla
-    
-    // Debug modu zorlama - kontrol için
-    $debug = true;
+    global $debug;
     
     if (empty($urunIds)) {
-        debugEcho("Boş ürün ID'leri dizisi, hesaplama yapılmayacak.");
         return [];
     }
     
@@ -160,7 +76,6 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
     };
     
     try {
-        debugEcho("Stok miktarları hesaplanıyor, ürün sayısı: " . count($urunIds));
         $stokMiktarlari = [];
         $urunChunks = array_chunk($urunIds, 20); // 20'şer ürün ID'sine böl
         
@@ -174,37 +89,8 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
             
             // Mevcut stok miktarlarını al
             $sql = "SELECT URUN_ID, MIKTAR FROM STK_URUN_MIKTAR WHERE URUN_ID IN ($queryParams)";
-            if ($debug) {
-                debugEcho("Stok miktarı sorgusu:", $sql);
-            }
-            
-            try {
-                // Doğrudan veritabanı sorgusu yap
-                $stmt = $db->prepare($sql);
-                $stmt->execute();
-                $stokSonuclari = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-                
-                if ($debug) {
-                    debugEcho("Stok sonuçları:", $stokSonuclari);
-                    
-                    // Her ürün için stok tablosunu kontrol et
-                    foreach ($chunk as $urunId) {
-                        $detaySql = "SELECT * FROM STK_URUN_MIKTAR WHERE URUN_ID = $urunId";
-                        $detayStmt = $db->query($detaySql);
-                        $detaySonuc = $detayStmt->fetchAll(PDO::FETCH_ASSOC);
-                        debugEcho("Ürün $urunId stok miktarı detayları:", $detaySonuc);
-                        
-                        // Stok hareketlerini de kontrol et
-                        $hareketSql = "SELECT * FROM STK_FIS_HAR WHERE STOK_ID = $urunId ORDER BY ID DESC LIMIT 5";
-                        $hareketStmt = $db->query($hareketSql);
-                        $hareketSonuc = $hareketStmt->fetchAll(PDO::FETCH_ASSOC);
-                        debugEcho("Ürün $urunId son 5 stok hareketi:", $hareketSonuc);
-                    }
-                }
-            } catch (Exception $e) {
-                debugEcho("Stok miktarı sorgu hatası:", $e->getMessage());
-                $stokSonuclari = [];
-            }
+            $stmt = guvenli_sorgu($db, $sql, [], 2);
+            $stokSonuclari = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             
             foreach ($chunk as $urunId) {
                 $stokMiktarlari[$urunId] = isset($stokSonuclari[$urunId]) ? $stokSonuclari[$urunId] : 0;
@@ -213,42 +99,9 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
             $sleep(); // 100ms bekle
         }
         
-        // Satış fiyatlarını al
-        $fiyatSql = "SELECT STOKID, FIYAT FROM STK_FIYAT WHERE TIP = 'S' AND STOKID IN (" . implode(',', $urunIds) . ")";
-        if ($debug) {
-            debugEcho("Satış fiyatı sorgusu:", $fiyatSql);
-        }
-        
-        try {
-            // Doğrudan veritabanı sorgusu yap
-            $fiyatStmt = $db->prepare($fiyatSql);
-            $fiyatStmt->execute();
-            $fiyatlar = $fiyatStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-            debugEcho("Bulunan satış fiyatları:", $fiyatlar);
-            
-            // Fiyat detaylarını kontrol et
-            foreach ($urunIds as $urunId) {
-                $fiyatDetaySql = "SELECT * FROM STK_FIYAT WHERE STOKID = $urunId";
-                $fiyatDetayStmt = $db->query($fiyatDetaySql);
-                $fiyatDetaySonuc = $fiyatDetayStmt->fetchAll(PDO::FETCH_ASSOC);
-                debugEcho("Ürün $urunId fiyat detayları:", $fiyatDetaySonuc);
-            }
-        } catch (Exception $e) {
-            debugEcho("Fiyat sorgulama hatası:", $e->getMessage());
-            $fiyatlar = [];
-        }
-        
-        // Sonuçları debug et
-        if ($debug) {
-            debugEcho("Hesaplanan stok miktarları:", $stokMiktarlari);
-        }
-        
         return $stokMiktarlari;
     } catch (Exception $e) {
         error_log("Stok miktarları hesaplanırken hata: " . $e->getMessage());
-        if ($debug) {
-            debugEcho("Stok miktarları hesaplanırken hata:", $e->getMessage());
-        }
         // Boş değer döndür, işlemi durdurmak yerine basitçe ilerle
         return [];
     }
@@ -343,7 +196,7 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
             $search_param = '%' . searchTermPrepare($kelime) . '%';
             
             // Büyük harfe dönüştürülerek arama yapalım
-            $where_parts[] = "(" . sqlTurkceUpper("s.KOD") . " LIKE ? OR " . sqlTurkceUpper("s.ADI") . " LIKE ?)";
+            $where_parts[] = "(" . sqlTurkceUpper("KOD") . " LIKE ? OR " . sqlTurkceUpper("ADI") . " LIKE ?)";
             
             $params[] = $search_param;
             $params[] = $search_param;
@@ -357,7 +210,7 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
             $search_param = '%' . searchTermPrepare($arama) . '%';
             
             // Büyük harfe dönüştürülerek arama yapalım
-            $where_parts[] = "(" . sqlTurkceUpper("s.KOD") . " LIKE ? OR " . sqlTurkceUpper("s.ADI") . " LIKE ?)";
+            $where_parts[] = "(" . sqlTurkceUpper("KOD") . " LIKE ? OR " . sqlTurkceUpper("ADI") . " LIKE ?)";
             
             $params[] = $search_param;
             $params[] = $search_param;
@@ -371,18 +224,15 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
         debugEcho("Sorgu parametreleri:", $params);
         
         // Toplam kayıt sayısını al
-        $countSql = "SELECT COUNT(*) FROM stok s WHERE " . $where_clause;
+        $countSql = "SELECT COUNT(*) FROM stok WHERE " . $where_clause;
         debugEcho("Sayım SQL sorgusu:", $countSql);
         
         try {
-            // Doğrudan veritabanı sorgusu yap
-            $countStmt = $db->prepare($countSql);
-            $countStmt->execute($params);
+            $countStmt = guvenli_sorgu($db, $countSql, $params, 3);
             $toplam_kayit = $countStmt->fetchColumn();
             debugEcho("Toplam kayıt sayısı: " . $toplam_kayit);
         } catch (Exception $e) {
             error_log("Kayıt sayma hatası: " . $e->getMessage());
-            debugEcho("Kayıt sayma hatası: " . $e->getMessage());
             $toplam_kayit = 0; // Hata durumunda varsayılan değer
         }
         
@@ -392,18 +242,15 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
                 LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
                 WHERE " . $where_clause . " 
                 ORDER BY CASE WHEN um.MIKTAR IS NULL THEN 0 ELSE 1 END DESC, um.MIKTAR DESC 
-                LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
+                LIMIT " . (int)$offset . ", " . (int)$limit;
         debugEcho("Ana SQL sorgusu:", $sql);
         
         try {
-            // Doğrudan veritabanı sorgusu yap
-            $stmt = $db->prepare($sql);
-            $stmt->execute($params);
+            $stmt = guvenli_sorgu($db, $sql, $params, 5);
             $urunler = $stmt->fetchAll();
             debugEcho("Bulunan ürün sayısı: " . count($urunler));
         } catch (Exception $e) {
             error_log("Ürün sorgulama hatası: " . $e->getMessage());
-            debugEcho("Ürün sorgulama hatası: " . $e->getMessage());
             $urunler = []; // Hata durumunda boş dizi
             echo '<div class="alert alert-danger">Ürün bilgileri alınırken bir hata oluştu. Lütfen sayfayı yenileyin veya yöneticinize başvurun.</div>';
         }
@@ -423,46 +270,18 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
                     
                     // Miktarları al
                     $miktarSql = "SELECT URUN_ID, MIKTAR FROM STK_URUN_MIKTAR WHERE URUN_ID IN (" . implode(',', $urunIds) . ")";
-                    debugEcho("Miktar SQL sorgusu:", $miktarSql);
-                    try {
-                        // Doğrudan veritabanı sorgusu yap
-                        $miktarStmt = $db->prepare($miktarSql);
-                        $miktarStmt->execute();
-                        $miktarlar = $miktarStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-                        debugEcho("Bulunan stok miktarları:", $miktarlar);
-                    } catch (Exception $e) {
-                        debugEcho("Miktar sorgulama hatası:", $e->getMessage());
-                        $miktarlar = [];
-                    }
+                    $miktarStmt = guvenli_sorgu($db, $miktarSql, [], 3);
+                    $miktarlar = $miktarStmt->fetchAll(PDO::FETCH_KEY_PAIR);
                     
                     // Satış fiyatlarını al
                     $fiyatSql = "SELECT STOKID, FIYAT FROM STK_FIYAT WHERE TIP = 'S' AND STOKID IN (" . implode(',', $urunIds) . ")";
-                    debugEcho("Fiyat SQL sorgusu:", $fiyatSql);
-                    try {
-                        // Doğrudan veritabanı sorgusu yap
-                        $fiyatStmt = $db->prepare($fiyatSql);
-                        $fiyatStmt->execute();
-                        $fiyatlar = $fiyatStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-                        debugEcho("Bulunan satış fiyatları:", $fiyatlar);
-                    } catch (Exception $e) {
-                        debugEcho("Fiyat sorgulama hatası:", $e->getMessage());
-                        $fiyatlar = [];
-                    }
+                    $fiyatStmt = guvenli_sorgu($db, $fiyatSql, [], 3);
+                    $fiyatlar = $fiyatStmt->fetchAll(PDO::FETCH_KEY_PAIR);
                     
-                    // Ürün verilerine ekle - Her ürün için stok miktarı ve satış fiyatını debug ile
+                    // Ürün verilerine ekle
                     foreach ($urunler as &$urun) {
-                        $urun['current_stock'] = isset($miktarlar[$urun['ID']]) ? $miktarlar[$urun['ID']] : 0;
-                        $urun['GUNCEL_FIYAT'] = isset($fiyatlar[$urun['ID']]) ? $fiyatlar[$urun['ID']] : 0;
-                        
-                        // Debug kontrolü yapmadan önce global değişkeni tanımla
-                        global $debug;
-                        
-                        if ($debug) {
-                            debugEcho("Ürün " . $urun['ID'] . " (" . $urun['KOD'] . ") bilgileri:", [
-                                'miktar' => $urun['current_stock'],
-                                'satış fiyatı' => $urun['GUNCEL_FIYAT']
-                            ]);
-                        }
+                        $urun['current_stock'] = $miktarlar[$urun['ID']] ?? 0;
+                        $urun['GUNCEL_FIYAT'] = $fiyatlar[$urun['ID']] ?? 0;
                     }
                     
                     return true;
@@ -584,7 +403,7 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
                 LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
                 $whereClause 
                 ORDER BY CASE WHEN um.MIKTAR IS NULL THEN 0 ELSE 1 END DESC, um.MIKTAR DESC 
-                LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
+                LIMIT " . (int)$offset . ", " . (int)$limit;
         debugEcho("Ana SQL sorgusu:", $sql);
         
         $stmt = $db->prepare($sql);
@@ -688,37 +507,36 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                 }
                 echo '</td>';
                 echo '<td class="text-end">';
-                if (isset($urun['ALIS_FIYAT'])): ?>
-                    <span class="fiyat-gizli">
-                        <span class="gizli-deger">****</span>
-                        <span class="gercek-deger">₺<?php echo number_format($urun['ALIS_FIYAT'], 2, ',', '.'); ?></span>
-                    </span>
+                if (isset($urun['ALIS_FIYAT'])) {
+                    echo '<span class="fiyat-gizli">';
+                    echo '<span class="gizli-deger">****</span>';
+                    echo '<span class="gercek-deger">₺'.number_format($urun['ALIS_FIYAT'], 2, ',', '.').'</span>';
+                    echo '</span>';
+                } else {
+                    echo '<span class="fiyat-gizli">';
+                    echo '<span class="gizli-deger">****</span>';
+                    echo '<span class="gercek-deger">₺0,00</span>';
+                    echo '</span>';
+                }
+                echo '</td>';
+                echo '<td class="text-end">';
+                if (isset($urun['GUNCEL_FIYAT'])): ?>
+                    <?php
+                    $guncel_fiyat = (float)$urun['GUNCEL_FIYAT'];
+                    $sistem_fiyat = isset($urun['SATIS_FIYAT']) ? (float)$urun['SATIS_FIYAT'] : 0;
+                    
+                    if ($sistem_fiyat != $guncel_fiyat):
+                    ?>
+                        <span class="text-primary">₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?></span>
+                        <br><small class="text-muted">Sistem: ₺<?php echo number_format($sistem_fiyat, 2, ',', '.'); ?></small>
+                    <?php else: ?>
+                        ₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?>
+                    <?php endif; ?>
                 <?php else: ?>
-                    <span class="fiyat-gizli">
-                        <span class="gizli-deger">****</span>
-                        <span class="gercek-deger">₺0,00</span>
-                    </span>
+                    ₺<?php echo isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00'; ?>
                 <?php endif; ?>
                 </td>
-                <td class="text-end">
-                    <?php if (isset($urun['GUNCEL_FIYAT'])): ?>
-                        <?php
-                         $guncel_fiyat = (float)$urun['GUNCEL_FIYAT'];
-                         $sistem_fiyat = isset($urun['SATIS_FIYAT']) ? (float)$urun['SATIS_FIYAT'] : 0;
-                         
-                        if ($sistem_fiyat != $guncel_fiyat):
-                        ?>
-                            <span class="text-primary">₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?></span>
-                            <br><small class="text-muted">Sistem: ₺<?php echo number_format($sistem_fiyat, 2, ',', '.'); ?></small>
-                        <?php else: ?>
-                            ₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?>
-                        <?php endif; ?>
-                    <?php else: ?>
-                        ₺<?php echo isset($urun['SATIS_FIYAT']) ? number_format($urun['SATIS_FIYAT'], 2, ',', '.') : '0,00'; ?>
-                    <?php endif; ?>
-                </td>
-                <td>
-                <?php 
+                echo '<td>';
                 if (isset($urun['OZELALAN1']) && !empty($urun['OZELALAN1'])) {
                     $oem_array = preg_split('/\r\n|\r|\n/', $urun['OZELALAN1'], -1, PREG_SPLIT_NO_EMPTY);
                     if (!empty($oem_array)) {
@@ -730,9 +548,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                 } else {
                     echo '-';
                 }
-                ?>
-                </td>
-                <?php 
+                echo '</td>';
                 echo '<td class="text-center">';
                 echo '<div class="btn-group">';
                 echo '<a href="urun_detay.php?id='.$urun['ID'].'" class="btn btn-sm btn-info" title="Detay"><i class="fas fa-eye"></i></a>';
@@ -1072,9 +888,9 @@ if (isset($error)) {
                                             <td class="text-end">
                                                 <?php if (isset($urun['GUNCEL_FIYAT'])): ?>
                                                     <?php
-                                                     $guncel_fiyat = (float)$urun['GUNCEL_FIYAT'];
-                                                     $sistem_fiyat = isset($urun['SATIS_FIYAT']) ? (float)$urun['SATIS_FIYAT'] : 0;
-                                                     
+                                                    $guncel_fiyat = (float)$urun['GUNCEL_FIYAT'];
+                                                    $sistem_fiyat = isset($urun['SATIS_FIYAT']) ? (float)$urun['SATIS_FIYAT'] : 0;
+                                                    
                                                     if ($sistem_fiyat != $guncel_fiyat):
                                                     ?>
                                                         <span class="text-primary">₺<?php echo number_format($guncel_fiyat, 2, ',', '.'); ?></span>

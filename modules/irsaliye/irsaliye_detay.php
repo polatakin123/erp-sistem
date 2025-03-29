@@ -469,58 +469,67 @@ if (!empty($kalemler)) {
                 </div>
             </div>
 
-            <div class="card shadow-sm mt-2">
-                <div class="card-header py-2">
-                    <h5 class="mb-0">İrsaliye Kalemleri</h5>
+            <!-- İrsaliye Kalemleri Bölümü -->
+            <div class="card mt-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-list-ul"></i> İrsaliye Kalemleri
+                    </h5>
                 </div>
-                <div class="card-body p-0">
+                <div class="card-body">
+                    <?php if (count($kalemler) > 0): ?>
                     <div class="table-responsive">
-                        <table class="table table-striped table-bordered table-sm mb-0">
+                        <table class="table table-striped table-hover table-bordered">
                             <thead class="table-light">
                                 <tr>
-                                    <th width="5%">Sıra</th>
-                                    <th width="15%">Ürün Kodu</th>
-                                    <th>Ürün Adı</th>
-                                    <th width="8%">Miktar</th>
-                                    <th width="8%">Birim</th>
-                                    <th width="10%">Birim Fiyat</th>
-                                    <th width="10%">Toplam Tutar</th>
+                                    <th style="width: 5%">#</th>
+                                    <th style="width: 10%">Ürün Kodu</th>
+                                    <th style="width: 30%">Ürün Adı</th>
+                                    <th style="width: 10%" class="text-end">Miktar</th>
+                                    <th style="width: 10%">Birim</th>
+                                    <th style="width: 15%" class="text-end">Birim Fiyat</th>
+                                    <th style="width: 15%" class="text-end">Toplam Tutar</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php 
-                                // Debug: Tablo oluşturmadan önce son kontrol
-                                if ($debug_mode) {
-                                    echo '<div class="alert alert-danger">Tabloda gösterilen kalemler:</div>';
-                                    echo '<pre>';
-                                    print_r($kalemler);
-                                    echo '</pre>';
-                                }
-                                
-                                foreach ($kalemler as $index => $kalem): 
+                                $toplam_miktar = 0;
+                                $toplam_tutar = 0;
+                                foreach ($kalemler as $i => $kalem): 
+                                    $birim_fiyat = isset($kalem['FIYAT']) ? $kalem['FIYAT'] : 0;
+                                    $miktar = isset($kalem['MIKTAR']) ? $kalem['MIKTAR'] : 0;
+                                    $tutar = isset($kalem['TUTAR']) ? $kalem['TUTAR'] : 0;
+                                    
+                                    $toplam_miktar += $miktar;
+                                    $toplam_tutar += $tutar;
                                 ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($kalem['SIRANO']); ?></td>
+                                    <td class="text-center"><?php echo $i + 1; ?></td>
                                     <td><?php echo htmlspecialchars($kalem['urun_kod']); ?></td>
                                     <td><?php echo htmlspecialchars($kalem['urun_adi']); ?></td>
-                                    <td class="text-end"><?php echo number_format($kalem['MIKTAR'], 2, ',', '.'); ?></td>
-                                    <td><?php echo htmlspecialchars($kalem['birim']); ?></td>
-                                    <td class="text-end"><?php echo number_format($kalem['FIYAT'], 2, ',', '.'); ?> ₺</td>
-                                    <td class="text-end"><?php echo number_format($kalem['TUTAR'], 2, ',', '.'); ?> ₺</td>
-                                    <?php if ($debug_mode): ?>
-                                    <td>[Index: <?php echo $index; ?>, ID: <?php echo $kalem['ID']; ?>]</td>
-                                    <?php endif; ?>
+                                    <td class="text-end fw-bold"><?php echo number_format($miktar, 2, ',', '.'); ?></td>
+                                    <td><?php echo htmlspecialchars($kalem['birim'] ?? ''); ?></td>
+                                    <td class="text-end"><?php echo number_format($birim_fiyat, 2, ',', '.'); ?> ₺</td>
+                                    <td class="text-end fw-bold"><?php echo number_format($tutar, 2, ',', '.'); ?> ₺</td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
                             <tfoot class="table-light">
                                 <tr>
-                                    <th colspan="6" class="text-end">Genel Toplam:</th>
-                                    <th class="text-end"><?php echo number_format($irsaliye['GENELTOPLAM'], 2, ',', '.'); ?> ₺</th>
+                                    <td colspan="3" class="text-end fw-bold">TOPLAM:</td>
+                                    <td class="text-end fw-bold"><?php echo number_format($toplam_miktar, 2, ',', '.'); ?></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td class="text-end fw-bold"><?php echo number_format($toplam_tutar, 2, ',', '.'); ?> ₺</td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
+                    <?php else: ?>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i> Bu irsaliyeye ait kalem bulunamadı.
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </main>

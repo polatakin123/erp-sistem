@@ -270,93 +270,127 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
     <!-- Sabit Header -->
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container-fluid">
-            <a class="navbar-brand" href="<?php echo $rootPath; ?>index.php">
-                ERP Sistem
+            <a class="navbar-brand" href="<?php echo $rootPath; ?>">
+                <i class="fas fa-box-open"></i> ERP Sistem
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Menüyü aç/kapat">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
+            <div class="collapse navbar-collapse" id="navbarCollapse">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <li class="nav-item">
-                        <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : ''; ?>" href="<?php echo $rootPath; ?>index.php">
-                            <i class="fas fa-tachometer-alt"></i> Ana Sayfa
+                        <a class="nav-link <?php echo strpos($_SERVER['PHP_SELF'], 'index.php') !== false ? 'active' : ''; ?>" href="<?php echo $rootPath; ?>index.php">
+                            <i class="fas fa-tachometer-alt"></i> Gösterge Paneli
                         </a>
                     </li>
+                    
+                    <!-- Stok Menüsü -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/stok/') !== false ? 'active' : ''; ?>" href="#" id="stokDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-boxes"></i> Stok Yönetimi
+                        <a class="nav-link dropdown-toggle" href="#" id="stokDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-boxes"></i> Stok
                         </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="stokDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/index.php"><i class="fas fa-list me-2"></i> Stok Listesi</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/urun_ekle.php"><i class="fas fa-plus me-2"></i> Stok Ekle</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/stok_hareketleri.php"><i class="fas fa-exchange-alt me-2"></i> Stok Hareket</a></li>
+                        <ul class="dropdown-menu" aria-labelledby="stokDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/stok/index.php"><i class="fas fa-list"></i> Stok Listesi</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/stok/urun_ekle.php"><i class="fas fa-plus"></i> Yeni Ürün Ekle</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/stok/urun_arama.php"><i class="fas fa-search"></i> Ürün Arama</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/stok/stok_hareketi_ekle.php"><i class="fas fa-exchange-alt"></i> Stok Hareketi Ekle</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/stok/stok_raporlari.php"><i class="fas fa-chart-bar"></i> Stok Raporları</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Cari Menüsü -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="cariDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-users"></i> Cari
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="cariDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/cari/index.php"><i class="fas fa-list"></i> Cari Listesi</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/cari/cari_ekle.php"><i class="fas fa-user-plus"></i> Yeni Cari Ekle</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/cari/cari_arama.php"><i class="fas fa-search"></i> Cari Arama</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/cari/cari_hareketleri.php"><i class="fas fa-exchange-alt"></i> Cari Hareketleri</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/cari/cari_raporlari.php"><i class="fas fa-chart-bar"></i> Cari Raporları</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- İrsaliye Menüsü -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-truck"></i> İrsaliye
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_ozet.php">
+                                <i class="fas fa-chart-bar"></i> İrsaliye Özet
+                            </a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_listesi.php">
+                                <i class="fas fa-list"></i> İrsaliye Listesi
+                            </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/stok/stok_rapor.php"><i class="fas fa-chart-bar me-2"></i> Stok Raporu</a></li>
-                        </ul>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/cari/') !== false ? 'active' : ''; ?>" href="#" id="cariDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-address-book"></i> Cari Yönetimi
-                        </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="cariDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_arama.php"><i class="fas fa-list me-2"></i> Cari Listesi</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_ekle.php"><i class="fas fa-plus me-2"></i> Cari Ekle</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/alis_irsaliyesi.php">
+                                <i class="fas fa-arrow-circle-down"></i> Alış İrsaliyesi
+                            </a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/yurtici_satis_irsaliyesi.php">
+                                <i class="fas fa-arrow-circle-up"></i> Yurt İçi Satış İrsaliyesi
+                            </a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/yurtdisi_satis_irsaliyesi.php">
+                                <i class="fas fa-globe"></i> Yurt Dışı Satış İrsaliyesi
+                            </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/cari/cari_rapor.php"><i class="fas fa-chart-bar me-2"></i> Cari Raporu</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_hareketleri.php">
+                                <i class="fas fa-exchange-alt"></i> İrsaliye Hareketleri
+                            </a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/toplu_faturala.php">
+                                <i class="fas fa-file-invoice"></i> Toplu Faturala
+                            </a></li>
                         </ul>
                     </li>
+                    
+                    <!-- Fatura Menüsü -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/irsaliye/') !== false ? 'active' : ''; ?>" href="#" id="irsaliyeDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-truck"></i> İrsaliye İşlemleri
+                        <a class="nav-link dropdown-toggle" href="#" id="faturaDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-file-invoice"></i> Fatura
                         </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="irsaliyeDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_listesi.php"><i class="fas fa-list me-2"></i> İrsaliye Listesi</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_ekle.php"><i class="fas fa-plus me-2"></i> İrsaliye Ekle</a></li>
+                        <ul class="dropdown-menu" aria-labelledby="faturaDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/fatura/fatura_listesi.php"><i class="fas fa-list"></i> Fatura Listesi</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/fatura/fatura_ekle.php"><i class="fas fa-plus"></i> Yeni Fatura Ekle</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/fatura/fatura_hareketleri.php"><i class="fas fa-exchange-alt"></i> Fatura Hareketleri</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/fatura/fatura_raporlari.php"><i class="fas fa-chart-bar"></i> Fatura Raporları</a></li>
                         </ul>
                     </li>
+                    
+                    <!-- Muhasebe Menüsü -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/fatura/') !== false ? 'active' : ''; ?>" href="#" id="faturaDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-file-invoice"></i> Fatura İşlemleri
-                        </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="faturaDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/fatura/fatura_listesi.php"><i class="fas fa-list me-2"></i> Fatura Listesi</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/fatura/fatura_ekle.php"><i class="fas fa-plus me-2"></i> Fatura Ekle</a></li>
-                        </ul>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/muhasebe/') !== false ? 'active' : ''; ?>" href="#" id="muhasebeDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="nav-link dropdown-toggle" href="#" id="muhasebeDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-calculator"></i> Muhasebe
                         </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="muhasebeDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/kasa_listesi.php"><i class="fas fa-cash-register me-2"></i> Kasa İşlemleri</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/banka_listesi.php"><i class="fas fa-university me-2"></i> Banka İşlemleri</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/muhasebe/rapor.php"><i class="fas fa-chart-line me-2"></i> Muhasebe Raporu</a></li>
+                        <ul class="dropdown-menu" aria-labelledby="muhasebeDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/muhasebe/kasa_listesi.php"><i class="fas fa-cash-register"></i> Kasa İşlemleri</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/muhasebe/banka_listesi.php"><i class="fas fa-university"></i> Banka İşlemleri</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/muhasebe/rapor.php"><i class="fas fa-chart-line"></i> Muhasebe Raporu</a></li>
                         </ul>
                     </li>
+                    
+                    <!-- Raporlar Menüsü -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/raporlar/') !== false ? 'active' : ''; ?>" href="#" id="raporlarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="nav-link dropdown-toggle" href="#" id="raporlarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-chart-bar"></i> Raporlar
                         </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="raporlarDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/satis_raporu.php"><i class="fas fa-chart-line me-2"></i> Satış Raporu</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/stok_raporu.php"><i class="fas fa-chart-pie me-2"></i> Stok Raporu</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/raporlar/cari_raporu.php"><i class="fas fa-users me-2"></i> Cari Raporu</a></li>
+                        <ul class="dropdown-menu" aria-labelledby="raporlarDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/raporlar/satis_raporu.php"><i class="fas fa-chart-line"></i> Satış Raporu</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/raporlar/stok_raporu.php"><i class="fas fa-chart-pie"></i> Stok Raporu</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/raporlar/cari_raporu.php"><i class="fas fa-users"></i> Cari Raporu</a></li>
                         </ul>
                     </li>
                     
                     <!-- Sistem Menüleri -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle <?php echo strpos($_SERVER['PHP_SELF'], '/modules/kullanici/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/ayarlar/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/yedekleme/') !== false || strpos($_SERVER['PHP_SELF'], '/modules/yardim/') !== false ? 'active' : ''; ?>" href="#" id="sistemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="nav-link dropdown-toggle" href="#" id="sistemDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cog"></i> Sistem
                         </a>
-                        <ul class="dropdown-menu shadow" aria-labelledby="sistemDropdown">
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/kullanici/index.php"><i class="fas fa-users me-2"></i> Kullanıcı Yönetimi</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/ayarlar/index.php"><i class="fas fa-cog me-2"></i> Ayarlar</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/yedekleme/index.php"><i class="fas fa-database me-2"></i> Yedekleme</a></li>
-                            <li><a class="dropdown-item d-flex align-items-center" href="<?php echo $rootPath; ?>modules/yardim/index.php"><i class="fas fa-question-circle me-2"></i> Yardım</a></li>
+                        <ul class="dropdown-menu" aria-labelledby="sistemDropdown">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/kullanici/index.php"><i class="fas fa-users"></i> Kullanıcı Yönetimi</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/ayarlar/index.php"><i class="fas fa-cog"></i> Ayarlar</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/yedekleme/index.php"><i class="fas fa-database"></i> Yedekleme</a></li>
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/yardim/index.php"><i class="fas fa-question-circle"></i> Yardım</a></li>
                         </ul>
                     </li>
                 </ul>
