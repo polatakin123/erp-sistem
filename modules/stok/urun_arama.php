@@ -88,9 +88,9 @@ if (!function_exists('db_islem_dene')) {
 }
 
 // Debug modu aktif
-$debug = true; // Hata ayıklama modunu açtık
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+$debug = false; // Hata ayıklama modu kapalı
+ini_set('display_errors', 0); // Hata mesajlarını gösterme
+error_reporting(0); // Hata raporlamayı kapat
 
 // Oturum başlat
 session_start();
@@ -142,8 +142,7 @@ function searchTermPrepare($term) {
 function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
     global $debug; // Debug değişkenini küresel değişken olarak tanımla
     
-    // Debug modu zorlama - kontrol için
-    $debug = true;
+    // Debug modu zorlama satırını kaldırıyorum
     
     if (empty($urunIds)) {
         debugEcho("Boş ürün ID'leri dizisi, hesaplama yapılmayacak.");
