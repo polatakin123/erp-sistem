@@ -559,6 +559,83 @@ try {
         $insert_sql = "INSERT INTO `$target_table` ($target_column_names) VALUES ($placeholders)";
         $insert_stmt = $db->prepare($insert_sql);
         
+        // Sadece yeni kayıtları aktarmak için değişkenler
+        $where_clause = "";
+        $last_id_column = null;
+        $last_id_value = null;
+        $incremental_update = false;
+        
+        // Eğer tabloda temizleme yapılmadıysa ve birincil anahtar varsa sadece yeni kayıtları aktarabiliriz
+        if ($exists && !$truncate && isset($config['primary_key']) && !empty($config['primary_key'])) {
+            try {
+                // Birincil anahtar kolonları
+                $primary_keys = $config['primary_key'];
+                
+                // Hedef tablodaki birincil anahtar sütunu
+                $primary_key = $primary_keys[0]; // Şimdilik ilk birincil anahtarı kullanalım
+                
+                // Hedef kolon adını bul
+                $target_primary_key = null;
+                foreach ($filtered_source_columns as $index => $source_col) {
+                    if ($source_col == $primary_key) {
+                        $target_primary_key = $filtered_target_columns[$index];
+                        break;
+                    }
+                }
+                
+                if ($target_primary_key) {
+                    // Hedef tablodaki en son ID'yi bul
+                    $last_id_query = $db->prepare("SELECT MAX(`$target_primary_key`) as last_id FROM `$target_table`");
+                    $last_id_query->execute();
+                    $last_id_result = $last_id_query->fetch(PDO::FETCH_ASSOC);
+                    
+                    if ($last_id_result && !is_null($last_id_result['last_id'])) {
+                        $last_id_value = $last_id_result['last_id'];
+                        $last_id_column = $primary_key;
+                        $incremental_update = true;
+                        
+                        echo "<script>addLog('Son kayıt ID: " . $last_id_value . " bulundu. Sadece yeni kayıtlar aktarılacak.', 'success');</script>";
+                        flush();
+                        
+                        // Kaynak veritabanından sadece yeni kayıtları çekmek için WHERE koşulu
+                        $where_clause = " WHERE [$primary_key] > '$last_id_value'";
+                        if (!$is_mssql) {
+                            $where_clause = " WHERE `$primary_key` > '$last_id_value'";
+                        }
+                        
+                        // Sadece yeni kayıtların sayısını hesapla
+                        try {
+                            if ($is_mssql) {
+                                $newCountSql = "SELECT COUNT(*) AS total FROM [$table]$where_clause";
+                            } else {
+                                $newCountSql = "SELECT COUNT(*) AS total FROM `$table`$where_clause";
+                            }
+                            $newCountStmt = $sourceDb->query($newCountSql);
+                            $totalRecords = (int)$newCountStmt->fetchColumn();
+                            
+                            if ($totalRecords == 0) {
+                                echo "<script>addLog('Tablo " . $table . ": Aktarılacak yeni kayıt bulunmadı.', 'success');</script>";
+                                echo "<script>updateTableProgress('" . $table . "', 0, 0, 'success');</script>";
+                                echo "<script>updateOverallProgress(" . $currentTable . ", " . $totalTables . ");</script>";
+                                flush();
+                                continue; // Sonraki tabloya geç
+                            }
+                            
+                            echo "<script>addLog('Tablo " . $table . ": Toplam " . $totalRecords . " yeni kayıt aktarılacak.');</script>";
+                            echo "<script>addTableProgress('" . $table . "', " . $totalRecords . ");</script>";
+                            flush();
+                        } catch (PDOException $e) {
+                            echo "<script>addLog('Tablo " . $table . ": Yeni kayıt sayısı hesaplanamadı - " . addslashes($e->getMessage()) . "', 'error');</script>";
+                            flush();
+                        }
+                    }
+                }
+            } catch (PDOException $e) {
+                echo "<script>addLog('Son kayıt kontrolü yapılamadı: " . addslashes($e->getMessage()) . "', 'error');</script>";
+                flush();
+            }
+        }
+        
         // Veri aktarımı değişkenlerini başlat
         $inserted = 0;
         $errors = [];
@@ -587,7 +664,7 @@ try {
                 
                 while ($hasMoreRows) {
                     // SQL Server 2012+ için OFFSET-FETCH kullanımı
-                    $pagingQuery = "SELECT $source_column_names FROM [$table] ORDER BY (SELECT NULL) OFFSET $offset ROWS FETCH NEXT $fetch_size ROWS ONLY";
+                    $pagingQuery = "SELECT $source_column_names FROM [$table]$where_clause ORDER BY (SELECT NULL) OFFSET $offset ROWS FETCH NEXT $fetch_size ROWS ONLY";
                     $stmt = $sourceDb->prepare($pagingQuery);
                     $stmt->execute();
                     
@@ -641,7 +718,14 @@ try {
             } else {
                 // MySQL için veri aktarımı
                 $source_column_names = '`' . implode('`, `', $filtered_source_columns) . '`';
-                $stmt = $sourceDb->prepare("SELECT $source_column_names FROM `$table`");
+                $query = "SELECT $source_column_names FROM `$table`";
+                
+                // Eğer where koşulu varsa ekle
+                if (!empty($where_clause)) {
+                    $query .= $where_clause;
+                }
+                
+                $stmt = $sourceDb->prepare($query);
                 
                 // Sorguyu yürüt
                 $stmt->execute();

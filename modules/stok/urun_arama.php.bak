@@ -5,17 +5,104 @@
  * Bu dosya ürünleri detaylı arama ve filtreleme işlemlerini gerçekleştirir.
  */
 
-// Gerekli dosyaları dahil et
-require_once '../../config/helpers.php';
-require_once '../../config/db.php';
-require_once '../../includes/functions.php';
-require_once 'functions.php';
+ require_once '../../config/helpers.php';
+
+// Yukarıdaki require ifadesinde bir sorun varsa, guvenli_sorgu fonksiyonunu doğrudan tanımlayalım
+if (!function_exists('guvenli_sorgu')) {
+    /**
+     * Zaman aşımı kontrollü güvenli sorgu çalıştırma
+     * @param PDO $db Veritabanı bağlantısı
+     * @param string $sql SQL sorgusu
+     * @param array $params Sorgu parametreleri
+     * @param int $timeout Zaman aşımı süresi (saniye)
+     * @return PDOStatement Sorgu sonucu
+     */
+    function guvenli_sorgu($db, $sql, $params = [], $timeout = 5) {
+        global $performans_izleme;
+        
+        // Performans ölçümü başlat
+        $olcum = sorguBaslat($sql);
+        
+        // Önceki zaman aşımı ayarını yedekle
+        $db->query("SET @old_max_execution_time = @@max_execution_time");
+        
+        // Yeni zaman aşımı ayarını belirle (milisaniye cinsinden)
+        $db->query("SET SESSION max_execution_time=" . ($timeout * 1000));
+        
+        try {
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            
+            // Zaman aşımı ayarını geri yükle
+            $db->query("SET SESSION max_execution_time = @old_max_execution_time");
+            
+            // Performans ölçümü bitir
+            sorguBitir($olcum);
+            
+            return $stmt;
+        } catch (PDOException $e) {
+            // Zaman aşımı ayarını geri yükle
+            $db->query("SET SESSION max_execution_time = @old_max_execution_time");
+            
+            // Performans ölçümü bitir (hata durumunda da)
+            sorguBitir($olcum);
+            
+            // Hata kodu kontrol et (veritabanı kilitleme/zaman aşımı kodları)
+            if ($e->getCode() == 'HY000' || $e->getCode() == 'S1T00') {
+                // Zaman aşımı hatası
+                error_log("Sorgu zaman aşımı hatası: " . $e->getMessage() . " - SQL: " . $sql);
+                throw new Exception("Sorgu zaman aşımına uğradı. Lütfen daha sonra tekrar deneyin.");
+            } else {
+                // Diğer hatalar
+                error_log("Veritabanı hatası: " . $e->getMessage() . " - SQL: " . $sql);
+                throw $e;
+            }
+        }
+    }
+}
+
+// db_islem_dene fonksiyonu da eksik olabilir
+if (!function_exists('db_islem_dene')) {
+    /**
+     * Döngü kontrolü ile veritabanı işlemi
+     * @param PDO $db Veritabanı bağlantısı
+     * @param callable $callback Çalıştırılacak fonksiyon
+     * @param int $maxTries Maksimum deneme sayısı
+     * @return mixed Fonksiyonun dönüş değeri
+     */
+    function db_islem_dene($db, $callback, $maxTries = 3) {
+        $tries = 0;
+        $lastError = null;
+        
+        while ($tries < $maxTries) {
+            try {
+                return $callback($db);
+            } catch (PDOException $e) {
+                $tries++;
+                $lastError = $e;
+                
+                // Deadlock hatası ise yeniden dene
+                if ($e->getCode() == 40001 || $e->getCode() == 1213) {
+                    // Biraz bekle ve yeniden dene
+                    usleep(rand(500000, 1000000)); // 0.5-1 saniye bekle
+                    continue;
+                } else {
+                    // Diğer hataları hemen fırlat
+                    throw $e;
+                }
+            }
+        }
+        
+        // Maksimum deneme sayısına ulaşıldı
+        throw new Exception("Veritabanı işlemi $maxTries deneme sonrasında başarısız oldu: " . $lastError->getMessage());
+    }
+}
 
 // Debug modu aktif
-$debug = true; // Hata ayıklama modu açık
-$performans_izleme = true; // Performans izleme modu açık
-ini_set('display_errors', 1); // Hata mesajlarını göster
-error_reporting(E_ALL); // Tüm hataları raporla
+$debug = false; // Hata ayıklama modu kapalı
+$performans_izleme = false; // Performans izleme modu kapatıldı
+ini_set('display_errors', 0); // Hata mesajlarını gösterme
+error_reporting(0); // Hata raporlamayı kapat
 
 // Performans izleme değişkenleri
 $performans_olcumleri = [];
@@ -26,22 +113,303 @@ $sayfa_baslangic_zamani = microtime(true);
 // Oturum başlat
 session_start();
 
+// Debug fonksiyonu
+function debugEcho($message, $variable = null) {
+    global $debug;
+    if ($debug) {
+        echo '<div style="background-color:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:10px; margin:10px 0; border-radius:5px;">';
+        echo '<strong>DEBUG:</strong> ' . htmlspecialchars($message);
+        if ($variable !== null) {
+            echo '<pre>';
+            print_r($variable);
+            echo '</pre>';
+        }
+        echo '</div>';
+    }
+}
+
+// Performans izleme fonksiyonları
+function sorguBaslat($sorgu) {
+    global $performans_izleme, $sorgu_sayaci;
+    if ($performans_izleme) {
+        $sorgu_sayaci++;
+        return [
+            'id' => $sorgu_sayaci,
+            'sorgu' => $sorgu,
+            'baslangic' => microtime(true),
+            'bitis' => null,
+            'sure' => null
+        ];
+    }
+    return null;
+}
+
+function sorguBitir($olcum) {
+    global $performans_izleme, $performans_olcumleri, $toplam_sorgu_suresi;
+    if ($performans_izleme && $olcum !== null) {
+        $olcum['bitis'] = microtime(true);
+        $olcum['sure'] = ($olcum['bitis'] - $olcum['baslangic']) * 1000; // milisaniye cinsinden
+        $toplam_sorgu_suresi += $olcum['sure'];
+        $performans_olcumleri[] = $olcum;
+        return $olcum['sure'];
+    }
+    return null;
+}
+
+function performansRaporuGoster() {
+    global $performans_izleme, $performans_olcumleri, $toplam_sorgu_suresi, $sayfa_baslangic_zamani;
+    if ($performans_izleme) {
+        $sayfa_yukleme_suresi = (microtime(true) - $sayfa_baslangic_zamani) * 1000; // milisaniye cinsinden
+        
+        echo '<div style="position:fixed; bottom:10px; right:10px; width:600px; max-height:80vh; overflow-y:auto; background-color:#fff; border:1px solid #ddd; border-radius:5px; box-shadow:0 0 10px rgba(0,0,0,0.1); padding:10px; z-index:9999; font-size:12px;">';
+        echo '<h4 style="margin-top:0;border-bottom:1px solid #ddd;padding-bottom:5px;">Performans Raporu</h4>';
+        echo '<div style="margin-bottom:10px;padding:5px;background-color:#f8f9fa;border-radius:3px;">';
+        echo '<strong>Toplam Sayfa Yükleme Süresi:</strong> ' . number_format($sayfa_yukleme_suresi, 2) . ' ms<br>';
+        echo '<strong>Toplam Sorgu Sayısı:</strong> ' . count($performans_olcumleri) . '<br>';
+        echo '<strong>Toplam Sorgu Süresi:</strong> ' . number_format($toplam_sorgu_suresi, 2) . ' ms (' . number_format(($toplam_sorgu_suresi / $sayfa_yukleme_suresi) * 100, 1) . '%)<br>';
+        echo '</div>';
+        
+        if (!empty($performans_olcumleri)) {
+            // Sorguları süreye göre sırala (en yavaşlar üstte)
+            usort($performans_olcumleri, function($a, $b) {
+                return $b['sure'] <=> $a['sure'];
+            });
+            
+            echo '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+            echo '<thead style="background-color:#f0f0f0;">';
+            echo '<tr><th style="padding:4px;text-align:left;border:1px solid #ddd;">ID</th><th style="padding:4px;text-align:left;border:1px solid #ddd;">Süre (ms)</th><th style="padding:4px;text-align:left;border:1px solid #ddd;">Sorgu</th></tr>';
+            echo '</thead><tbody>';
+            
+            foreach ($performans_olcumleri as $olcum) {
+                $renk = $olcum['sure'] > 100 ? '#ffebee' : ($olcum['sure'] > 50 ? '#fff8e1' : '#f1f8e9');
+                
+                echo '<tr style="background-color:' . $renk . ';">';
+                echo '<td style="padding:4px;border:1px solid #ddd;">' . $olcum['id'] . '</td>';
+                echo '<td style="padding:4px;border:1px solid #ddd;">' . number_format($olcum['sure'], 2) . '</td>';
+                echo '<td style="padding:4px;border:1px solid #ddd;"><pre style="margin:0;white-space:pre-wrap;word-break:break-all;max-width:450px;">' . htmlspecialchars($olcum['sorgu']) . '</pre></td>';
+                echo '</tr>';
+            }
+            
+            echo '</tbody></table>';
+        }
+        
+        echo '<div style="margin-top:10px;text-align:right;"><button onclick="this.parentNode.parentNode.style.display=\'none\';" style="padding:3px 8px;background:#f1f1f1;border:1px solid #ddd;border-radius:3px;cursor:pointer;">Kapat</button></div>';
+        echo '</div>';
+    }
+}
+
+/**
+ * Sorguları performans ölçümlü olarak çalıştırma
+ * @param PDO $db Veritabanı bağlantısı
+ * @param string $sql SQL sorgusu
+ * @param array $params Sorgu parametreleri
+ * @param bool $fetchAll Tüm sonuçları getir (false ise tek satır)
+ * @param int $fetchMode Getirme modu (PDO::FETCH_ASSOC vs.)
+ * @return mixed Sorgu sonucu
+ */
+function olcumluSorgu($db, $sql, $params = [], $fetchAll = true, $fetchMode = PDO::FETCH_ASSOC) {
+    $olcum = sorguBaslat($sql);
+    
+    try {
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        
+        if ($fetchAll) {
+            $sonuc = $stmt->fetchAll($fetchMode);
+        } else {
+            $sonuc = $stmt->fetch($fetchMode);
+        }
+        
+        sorguBitir($olcum);
+        return $sonuc;
+    } catch (Exception $e) {
+        sorguBitir($olcum);
+        debugEcho("Sorgu hatası: " . $e->getMessage(), $sql);
+        throw $e;
+    }
+}
+
+/**
+ * Tek değer döndüren sorguları performans ölçümlü olarak çalıştırma
+ * @param PDO $db Veritabanı bağlantısı
+ * @param string $sql SQL sorgusu
+ * @param array $params Sorgu parametreleri
+ * @return mixed Sorgu sonucu (tek değer)
+ */
+function olcumluSorguTekDeger($db, $sql, $params = []) {
+    $olcum = sorguBaslat($sql);
+    
+    try {
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $sonuc = $stmt->fetchColumn();
+        
+        sorguBitir($olcum);
+        return $sonuc;
+    } catch (Exception $e) {
+        sorguBitir($olcum);
+        debugEcho("Sorgu hatası: " . $e->getMessage(), $sql);
+        throw $e;
+    }
+}
+
+// Türkçe karakterleri İngilizce eşdeğerlerine dönüştüren fonksiyon - GÜNCELLENDI
+function turkceKarakterDonustur($str) {
+    $turkceKarakterler = ['ç', 'Ç', 'ğ', 'Ğ', 'ı', 'İ', 'ö', 'Ö', 'ş', 'Ş', 'ü', 'Ü'];
+    $ingilizceKarakterler = ['c', 'C', 'g', 'G', 'i', 'I', 'o', 'O', 's', 'S', 'u', 'U'];
+    return str_replace($turkceKarakterler, $ingilizceKarakterler, $str);
+}
+
+// SQL sorgusu için artık sadece basit UPPER kullanacağız
+function sqlUpperKolonu($columnName) {
+    return "UPPER($columnName)";
+}
+
+// SQL için arama terimi hazırlama - Optimize edildi
+function searchTermPrepare($term) {
+    // Önce HTML entity'leri decode et
+    $term = html_entity_decode($term);
+    // Sonra Türkçe karakterleri dönüştür
+    $normalized = turkceKarakterDonustur($term);
+    // Son olarak büyük harfe çevir
+    return strtoupper($normalized);
+}
+
+/**
+ * Ürün ID'leri için stok miktarlarını hesaplar ve STK_URUN_MIKTAR tablosuna kaydeder
+ * 
+ * @param PDO $db Veritabanı bağlantısı
+ * @param array $urunIds Ürün ID'leri dizisi
+ * @return array Ürün ID'leri ve stok miktarları (key-value array)
+ */
+function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
+    global $debug; // Debug değişkenini küresel değişken olarak tanımla
+    
+    if (empty($urunIds)) {
+        debugEcho("Boş ürün ID'leri dizisi, hesaplama yapılmayacak.");
+        return [];
+    }
+    
+    // Zaman aşımı kontrolü başlat
+    $startTime = microtime(true);
+    $timeoutSeconds = 5; // 5 saniye sonra zaman aşımı
+    
+    // İşlemler arasında küçük gecikmeler ekleyerek veritabanının nefes almasına izin ver
+    $sleep = function($ms = 100) {
+        usleep($ms * 1000);
+    };
+    
+    try {
+        debugEcho("Stok miktarları hesaplanıyor, ürün sayısı: " . count($urunIds));
+        $stokMiktarlari = [];
+        $urunChunks = array_chunk($urunIds, 20); // 20'şer ürün ID'sine böl
+        
+        foreach ($urunChunks as $chunk) {
+            // Zaman aşımı kontrolü
+            if (microtime(true) - $startTime > $timeoutSeconds) {
+                throw new Exception("Stok miktarları hesaplanırken zaman aşımı oluştu.");
+            }
+            
+            $queryParams = implode(',', $chunk);
+            
+            // Mevcut stok miktarlarını al
+            $sql = "SELECT URUN_ID, MIKTAR FROM STK_URUN_MIKTAR WHERE URUN_ID IN ($queryParams)";
+            if ($debug) {
+                debugEcho("Stok miktarı sorgusu:", $sql);
+            }
+            
+            try {
+                // Performans ölçümlü sorgu ile stok miktarlarını al
+                $stokSonuclar = olcumluSorgu($db, $sql);
+                $stokSonuclari = [];
+                
+                // Key-Value formatına dönüştür
+                foreach($stokSonuclar as $row) {
+                    $stokSonuclari[$row['URUN_ID']] = $row['MIKTAR'];
+                }
+                
+                if ($debug) {
+                    debugEcho("Stok sonuçları:", $stokSonuclari);
+                    
+                    // Her ürün için stok tablosunu kontrol et
+                    foreach ($chunk as $urunId) {
+                        $detaySql = "SELECT * FROM STK_URUN_MIKTAR WHERE URUN_ID = $urunId";
+                        // Performans ölçümlü sorgu
+                        $detaySonuc = olcumluSorgu($db, $detaySql);
+                        debugEcho("Ürün $urunId stok miktarı detayları:", $detaySonuc);
+                        
+                        // Stok hareketlerini de kontrol et
+                        $hareketSql = "SELECT * FROM STK_FIS_HAR WHERE STOK_ID = $urunId ORDER BY ID DESC LIMIT 5";
+                        // Performans ölçümlü sorgu
+                        $hareketSonuc = olcumluSorgu($db, $hareketSql);
+                        debugEcho("Ürün $urunId son 5 stok hareketi:", $hareketSonuc);
+                    }
+                }
+            } catch (Exception $e) {
+                debugEcho("Stok miktarı sorgu hatası:", $e->getMessage());
+                $stokSonuclari = [];
+            }
+            
+            foreach ($chunk as $urunId) {
+                $stokMiktarlari[$urunId] = isset($stokSonuclari[$urunId]) ? $stokSonuclari[$urunId] : 0;
+            }
+            
+            $sleep(); // 100ms bekle
+        }
+        
+        // Satış fiyatlarını al
+        $fiyatSql = "SELECT STOKID, FIYAT FROM STK_FIYAT WHERE TIP = 'S' AND STOKID IN (" . implode(',', $urunIds) . ")";
+        if ($debug) {
+            debugEcho("Satış fiyatı sorgusu:", $fiyatSql);
+        }
+        
+        try {
+            // Performans ölçümlü sorgu ile fiyatları al
+            $fiyatSonuclar = olcumluSorgu($db, $fiyatSql);
+            $fiyatlar = [];
+            
+            // Key-Value formatına dönüştür
+            foreach($fiyatSonuclar as $row) {
+                $fiyatlar[$row['STOKID']] = $row['FIYAT'];
+            }
+            
+            debugEcho("Bulunan satış fiyatları:", $fiyatlar);
+            
+            // Fiyat detaylarını kontrol et
+            if ($debug) {
+                foreach ($urunIds as $urunId) {
+                    $fiyatDetaySql = "SELECT * FROM STK_FIYAT WHERE STOKID = $urunId";
+                    // Performans ölçümlü sorgu
+                    $fiyatDetaySonuc = olcumluSorgu($db, $fiyatDetaySql);
+                    debugEcho("Ürün $urunId fiyat detayları:", $fiyatDetaySonuc);
+                }
+            }
+        } catch (Exception $e) {
+            debugEcho("Fiyat sorgulama hatası:", $e->getMessage());
+            $fiyatlar = [];
+        }
+        
+        // Sonuçları debug et
+        if ($debug) {
+            debugEcho("Hesaplanan stok miktarları:", $stokMiktarlari);
+        }
+        
+        return $stokMiktarlari;
+    } catch (Exception $e) {
+        error_log("Stok miktarları hesaplanırken hata: " . $e->getMessage());
+        if ($debug) {
+            debugEcho("Stok miktarları hesaplanırken hata:", $e->getMessage());
+        }
+        // Boş değer döndür, işlemi durdurmak yerine basitçe ilerle
+        return [];
+    }
+}
+
 // Oturum kontrolü
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../../login.php');
     exit;
 }
-
-// PDO hata modunu değiştir ve emulated prepares aktif et
-if ($debug) {
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    // Emulated prepares'ı aktif et - LIMIT ve benzeri ifadelerde parametre sorunu yaşamamak için
-    $db->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
-    debugEcho("PDO yapılandırması: Emulated Prepares aktif edildi");
-}
-
-// Sayfa başlığı
-$pageTitle = "Ürün Arama";
 
 // Kullanıcı tercihleri - varsayılan değerler
 $goruntulenecek_alanlar = [
@@ -151,6 +519,21 @@ if (isset($_POST['guncelle_alan_tercihleri'])) {
     exit;
 }
 
+// Gerekli dosyaları dahil et
+require_once '../../config/db.php';
+require_once '../../includes/functions.php';
+
+// PDO hata modunu değiştir ve emulated prepares aktif et
+if ($debug) {
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    // Emulated prepares'ı aktif et - LIMIT ve benzeri ifadelerde parametre sorunu yaşamamak için
+    $db->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+    debugEcho("PDO yapılandırması: Emulated Prepares aktif edildi");
+}
+
+// Sayfa başlığı
+$pageTitle = "Ürün Arama";
+
 // Arama parametresini al
 $arama = isset($_GET['arama']) ? clean($_GET['arama']) : '';
 
@@ -221,9 +604,8 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
             
             // Her kelime kendi içinde OR ile aransın (KOD veya ADI içinde), ancak
             // kelimeler arasında AND bağlacı kullanılsın
-            $where_parts[] = "(" . sqlUpperKolonu("s.KOD") . " LIKE ? OR " . sqlUpperKolonu("s.ADI") . " LIKE ? OR " . sqlUpperKolonu("s.OZELALAN10") . " LIKE ?)";
+            $where_parts[] = "(" . sqlUpperKolonu("s.KOD") . " LIKE ? OR " . sqlUpperKolonu("s.ADI") . " LIKE ?)";
             
-            $params[] = $search_param;
             $params[] = $search_param;
             $params[] = $search_param;
             
@@ -236,9 +618,8 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
             $search_param = '%' . searchTermPrepare($arama) . '%';
             
             // KOD veya ADI içinde ara
-            $where_parts[] = "(" . sqlUpperKolonu("s.KOD") . " LIKE ? OR " . sqlUpperKolonu("s.ADI") . " LIKE ? OR " . sqlUpperKolonu("s.OZELALAN10") . " LIKE ?)";
+            $where_parts[] = "(" . sqlUpperKolonu("s.KOD") . " LIKE ? OR " . sqlUpperKolonu("s.ADI") . " LIKE ?)";
             
-            $params[] = $search_param;
             $params[] = $search_param;
             $params[] = $search_param;
             
@@ -266,7 +647,7 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
         }
         
         // Ana sorguyu hazırla - LIMIT ve OFFSET sorununu düzelt
-        $sql = "SELECT s.*, MAX(sfA.FIYAT) as ALIS_FIYAT,
+        $sql = "SELECT s.*, sfA.FIYAT as ALIS_FIYAT,
                IFNULL(um.MIKTAR, 0) as STOK_MIKTARI,
                g1.KOD as ANA_KATEGORI,
                g2.KOD as ALT_KATEGORI, 
@@ -293,7 +674,6 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
         LEFT JOIN grup g9 ON s.OZELGRUP9 = g9.ID
         LEFT JOIN grup g10 ON s.OZELGRUP10 = g10.ID
         WHERE " . $where_clause . " 
-        GROUP BY s.ID
         ORDER BY STOK_MIKTARI DESC 
         LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
         debugEcho("Ana SQL sorgusu:", $sql);
@@ -302,8 +682,6 @@ if ($arama_modu == 'hizli' && !empty($arama)) {
             // Performans ölçümlü sorgu çalıştır
             $urunler = olcumluSorgu($db, $sql, $params);
             debugEcho("Bulunan ürün sayısı: " . count($urunler));
-            
-            
         } catch (Exception $e) {
             error_log("Ürün sorgulama hatası: " . $e->getMessage());
             debugEcho("Ürün sorgulama hatası: " . $e->getMessage());
@@ -397,7 +775,6 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
     !empty($urun_adi) || 
     !empty($tip) || 
     !empty($birim) || 
-    !empty($_GET['urun_kodu']) || 
     $min_stok !== null || 
     $max_stok !== null || 
     $min_fiyat !== null || 
@@ -424,14 +801,6 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
             // PHP tarafında dönüştürülmüş arama
             $search_param = '%' . searchTermPrepare($urun_adi) . '%';
             $whereConditions[] = sqlUpperKolonu("ADI") . " LIKE ?";
-            $params[] = $search_param;
-        }
-        
-        // Ürün kodu araması (OZELALAN10)
-        if (!empty($_GET['urun_kodu'])) {
-            $urun_kodu = clean($_GET['urun_kodu']);
-            $search_param = '%' . searchTermPrepare($urun_kodu) . '%';
-            $whereConditions[] = sqlUpperKolonu("OZELALAN10") . " LIKE ?";
             $params[] = $search_param;
         }
         
@@ -503,7 +872,7 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
         }
         
         // Ana sorguyu hazırla
-        $sql = "SELECT s.*, MAX(sfA.FIYAT) as ALIS_FIYAT,
+        $sql = "SELECT s.*, sfA.FIYAT as ALIS_FIYAT,
                IFNULL(um.MIKTAR, 0) as STOK_MIKTARI,
                g1.KOD as ANA_KATEGORI,
                g2.KOD as ALT_KATEGORI, 
@@ -515,7 +884,7 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
                g8.KOD as KASA_ISMI,
                g9.KOD as MOTOR_KODU,
                g10.KOD as TEDARIKCI,
-               s.OZELALAN10 as URUN_KODU
+               s.IURUNCODE as URUN_KODU
         FROM stok s 
         LEFT JOIN STK_URUN_MIKTAR um ON s.ID = um.URUN_ID 
         LEFT JOIN stk_fiyat sfA ON s.ID = sfA.STOKID AND sfA.TIP = 'A'
@@ -530,7 +899,6 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
         LEFT JOIN grup g9 ON s.OZELGRUP9 = g9.ID
         LEFT JOIN grup g10 ON s.OZELGRUP10 = g10.ID
         $whereClause 
-        GROUP BY s.ID
         ORDER BY STOK_MIKTARI DESC 
         LIMIT " . (int)$limit . " OFFSET " . (int)$offset;
         debugEcho("Ana SQL sorgusu:", $sql);
@@ -539,32 +907,6 @@ elseif ($arama_modu == 'detayli' && ($_SERVER['REQUEST_METHOD'] == 'GET' && (
             // Performans ölçümlü sorgu ile ürünleri al
             $urunler = olcumluSorgu($db, $sql, $params);
             debugEcho("Bulunan ürün sayısı: " . count($urunler));
-            
-            // DEBUG: Ürün tekrarı sorunu için debug bilgileri
-            echo '<div class="alert alert-info mt-3">';
-            echo '<h5>Debug Bilgileri - Detaylı Arama Sorgu Sonuçları:</h5>';
-            echo 'Toplam sonuç sayısı: ' . count($urunler) . '<br>';
-            echo 'SQL Sorgusu: ' . htmlspecialchars($sql) . '<br><br>';
-            
-            echo '<table class="table table-sm table-bordered">';
-            echo '<thead><tr><th>Sıra</th><th>ID</th><th>Kod</th><th>Ürün Kodu</th><th>Adı</th><th>ALIS_FIYAT ID</th></tr></thead>';
-            echo '<tbody>';
-            
-            foreach ($urunler as $i => $urun) {
-                echo '<tr>';
-                echo '<td>' . ($i + 1) . '</td>';
-                echo '<td>' . $urun['ID'] . '</td>';
-                echo '<td>' . htmlspecialchars($urun['KOD']) . '</td>';
-                echo '<td>' . htmlspecialchars($urun['OZELALAN10'] ?? '-') . '</td>';
-                echo '<td>' . htmlspecialchars($urun['ADI']) . '</td>';
-                echo '<td>' . (isset($urun['ALIS_FIYAT']) ? 'Var (' . $urun['ALIS_FIYAT'] . ')' : 'Yok') . '</td>';
-                echo '</tr>';
-            }
-            
-            echo '</tbody></table>';
-            echo '</div>';
-            // DEBUG SONU
-            
         } catch (Exception $e) {
             debugEcho("Ürün sorgulama hatası: " . $e->getMessage(), $sql);
             $urunler = [];
@@ -733,7 +1075,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
 
 <!-- Sayfa Başlığı -->
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-2 pb-1 mb-2 border-bottom">
-    <h1 class="h3"><?php echo $pageTitle; ?></h1>
+    <h1 class="h3">Ürün Arama</h1>
     <div class="btn-toolbar mb-0 mb-md-0">
         <div class="btn-group me-2">
             <a href="index.php" class="btn btn-sm btn-outline-secondary">
@@ -805,11 +1147,8 @@ if (isset($error)) {
                     <div class="col-md-2">
                         <input type="text" class="form-control form-control-sm" id="stok_kodu" name="stok_kodu" value="<?php echo html_entity_decode(htmlspecialchars($stok_kodu)); ?>" placeholder="Stok Kodu">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <input type="text" class="form-control form-control-sm" id="urun_adi" name="urun_adi" value="<?php echo html_entity_decode(htmlspecialchars($urun_adi)); ?>" placeholder="Ürün Adı">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="text" class="form-control form-control-sm" id="urun_kodu" name="urun_kodu" value="<?php echo isset($_GET['urun_kodu']) ? html_entity_decode(htmlspecialchars($_GET['urun_kodu'])) : ''; ?>" placeholder="Ürün Kodu">
                     </div>
                     
                     <div class="col-md-2">
@@ -1571,174 +1910,155 @@ if (isset($error)) {
             alert('Excel dönüştürme sırasında bir hata oluştu: ' + error.message);
         }
     }
+    
+    // Alanları özelleştirme işlevselliği
+    document.addEventListener('DOMContentLoaded', function() {
+        // Alanları Kaydet butonu için olay dinleyicisi
+        const alanKaydetBtn = document.getElementById('alanKaydet');
+        if (alanKaydetBtn) {
+            alanKaydetBtn.addEventListener('click', function() {
+                // Tüm seçili alanları topla
+                const tercihler = {};
+                document.querySelectorAll('.alan-secim').forEach(function(checkbox) {
+                    const alanAdi = checkbox.id.replace('alan_', '');
+                    tercihler[alanAdi] = checkbox.checked;
+                });
+                
+                console.log('Kaydedilecek tercihler:', tercihler);
+                
+                // AJAX ile tercihleri kaydet
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', 'ajax_kullanici_tercihi.php', true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.onload = function() {
+                    try {
+                        if (xhr.status === 200) {
+                            console.log('Sunucu yanıtı:', xhr.responseText);
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success) {
+                                // Başarı mesajı göster
+                                showNotification('Tercihleriniz başarıyla kaydedildi', 'success');
+                                
+                                // Sayfayı yenile (Modal ve backdrop sorunlarını çözmek için en güvenilir yöntem)
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1000);
+                            } else {
+                                showNotification('Hata: ' + response.message, 'danger');
+                            }
+                        } else {
+                            showNotification('Sunucu hatası: ' + xhr.status, 'danger');
+                        }
+                    } catch (error) {
+                        console.error('AJAX yanıtı işlenirken hata:', error);
+                        console.error('Ham yanıt:', xhr.responseText);
+                        showNotification('AJAX yanıtı işlenirken hata: ' + error.message, 'danger');
+                    }
+                };
+                xhr.onerror = function(error) {
+                    console.error('AJAX isteği sırasında hata:', error);
+                    showNotification('Bağlantı hatası', 'danger');
+                };
+                xhr.send('tercihler=' + encodeURIComponent(JSON.stringify(tercihler)));
+            });
+        }
+        
+        // Sayfa yüklendiğinde mevcut tercihlerle tabloyu güncelle
+        const tercihler = {};
+        document.querySelectorAll('.alan-secim').forEach(function(checkbox) {
+            const alanAdi = checkbox.id.replace('alan_', '');
+            tercihler[alanAdi] = checkbox.checked;
+        });
+        
+        // Tabloyu mevcut tercihlerle güncelle
+        updateTableColumns(tercihler);
+        
+        // Tablo sütunlarını tercihlerine göre güncelle
+        function updateTableColumns(tercihler) {
+            try {
+                // Tablolar listesi - tüm ürün tablolarını güncelle
+                const tables = document.querySelectorAll('.table-bordered');
+                if (tables.length === 0) {
+                    console.error('Hiç tablo bulunamadı!');
+                    return;
+                }
+                
+                tables.forEach(table => {
+                    // Başlık satırı
+                    const thead = table.querySelector('thead tr');
+                    // Veri satırları
+                    const tbody = table.querySelector('tbody');
+                    
+                    if (!thead || !tbody) {
+                        console.error('Tabloda thead veya tbody bulunamadı!');
+                        return;
+                    }
+                    
+                    // Her bir alan için sütunları gizle/göster
+                    for (const [alan, goster] of Object.entries(tercihler)) {
+                        // Başlıktaki sütun indeksini bul
+                        let index = -1;
+                        for (let i = 0; i < thead.children.length; i++) {
+                            const thElement = thead.children[i];
+                            if (thElement.getAttribute('data-alan') === alan) {
+                                index = i;
+                                break;
+                            }
+                        }
+                        
+                        if (index !== -1) {
+                            // Başlıktaki hücreyi gizle/göster
+                            const th = thead.children[index];
+                            th.style.display = goster ? '' : 'none';
+                            
+                            // Tüm satırlarda ilgili hücreleri gizle/göster
+                            Array.from(tbody.children).forEach(row => {
+                                if (row.children[index]) {
+                                    row.children[index].style.display = goster ? '' : 'none';
+                                }
+                            });
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Tablo güncellenirken hata oluştu:', error);
+                showNotification('Tablo güncellenirken hata oluştu: ' + error.message, 'danger');
+            }
+        }
+        
+        // Bildirim göster
+        function showNotification(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.setAttribute('role', 'alert');
+            alertDiv.style.top = '20px';
+            alertDiv.style.right = '20px';
+            alertDiv.style.zIndex = '9999';
+            
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Kapat"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            // 3 saniye sonra kaldır
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 3000);
+        }
+        
+        // Modalın kapatılması için olay dinleyicisi
+        document.querySelectorAll('[data-bs-dismiss="modal"]').forEach(button => {
+            button.addEventListener('click', function() {
+                // Sayfa yenilensin mi sorusu göster
+                if (confirm('Sayfa yenilensin mi? Yenilemek, yapılan değişiklikleri görmek için gerekli olabilir.')) {
+                    window.location.reload();
+                }
+            });
+        });
+    });
 </script>
-
-<?php 
-// Performans raporu göster
-if ($performans_izleme) {
-    performansRaporuGoster();
-}
-
-// Alt kısmı dahil et
-include_once '../../includes/footer.php'; 
-?> 
-
-<!-- Alanları Özelleştirme Modalı -->
-<div class="modal fade" id="alanlarModal" tabindex="-1" aria-labelledby="alanlarModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="alanlarModalLabel">Görüntülenecek Alanları Seçin</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_kod" name="alan_kod" value="1" <?php echo $goruntulenecek_alanlar['kod'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_kod">Stok Kodu</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_adi" name="alan_adi" value="1" <?php echo $goruntulenecek_alanlar['adi'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_adi">Ürün Adı</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_stok" name="alan_stok" value="1" <?php echo $goruntulenecek_alanlar['stok'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_stok">Stok Miktarı</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_alis_fiyat" name="alan_alis_fiyat" value="1" <?php echo $goruntulenecek_alanlar['alis_fiyat'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_alis_fiyat">Alış Fiyatı</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_satis_fiyat" name="alan_satis_fiyat" value="1" <?php echo $goruntulenecek_alanlar['satis_fiyat'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_satis_fiyat">Satış Fiyatı</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_oem" name="alan_oem" value="1" <?php echo $goruntulenecek_alanlar['oem'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_oem">OEM No</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_birim" name="alan_birim" value="1" <?php echo $goruntulenecek_alanlar['birim'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_birim">Birim</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_tip" name="alan_tip" value="1" <?php echo $goruntulenecek_alanlar['tip'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_tip">Tip</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_barkod" name="alan_barkod" value="1" <?php echo $goruntulenecek_alanlar['barkod'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_barkod">Barkod</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_urun_kodu" name="alan_urun_kodu" value="1" <?php echo $goruntulenecek_alanlar['urun_kodu'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_urun_kodu">Ürün Kodu</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_raf_kodu" name="alan_raf_kodu" value="1" <?php echo $goruntulenecek_alanlar['raf_kodu'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_raf_kodu">Raf Kodu</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_ana_kategori" name="alan_ana_kategori" value="1" <?php echo $goruntulenecek_alanlar['ana_kategori'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_ana_kategori">Ana Kategori</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_alt_kategori" name="alan_alt_kategori" value="1" <?php echo $goruntulenecek_alanlar['alt_kategori'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_alt_kategori">Alt Kategori</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_urun_markasi" name="alan_urun_markasi" value="1" <?php echo $goruntulenecek_alanlar['urun_markasi'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_urun_markasi">Ürün Markası</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_arac_markasi" name="alan_arac_markasi" value="1" <?php echo $goruntulenecek_alanlar['arac_markasi'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_arac_markasi">Araç Markası</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_arac_modeli" name="alan_arac_modeli" value="1" <?php echo $goruntulenecek_alanlar['arac_modeli'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_arac_modeli">Araç Modeli</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_arac_yil" name="alan_arac_yil" value="1" <?php echo $goruntulenecek_alanlar['arac_yil'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_arac_yil">Araç Yılı</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_kasa_ismi" name="alan_kasa_ismi" value="1" <?php echo $goruntulenecek_alanlar['kasa_ismi'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_kasa_ismi">Kasa İsmi</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_motor_kodu" name="alan_motor_kodu" value="1" <?php echo $goruntulenecek_alanlar['motor_kodu'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_motor_kodu">Motor Kodu</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-check">
-                            <input class="form-check-input alan-secim" type="checkbox" id="alan_tedarikci" name="alan_tedarikci" value="1" <?php echo $goruntulenecek_alanlar['tedarikci'] ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="alan_tedarikci">Tedarikçi</label>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                <button type="button" class="btn btn-primary" id="alanKaydet">Kaydet</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<link rel="stylesheet" href="assets/css/urun_arama.css">
-
-<!-- Dinamik Alan Özelleştirme JavaScript Kodu -->
-<script src="assets/js/urun_arama_alan.js"></script>
-
-<?php
-// Debug işlemlerinin ve performans raporlarının sonuçları
-if (isset($debug) && $debug) {
-    debugEcho("Debug modu aktif! Bu mesaj görüntüleniyorsa debug çalışıyor demektir.");
-}
-
-// Performans raporunu göster
-if (isset($performans_izleme) && $performans_izleme) {
-    performansRaporuGoster();
-}
-?>
 
 </body>
 </html>

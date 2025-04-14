@@ -1,0 +1,107 @@
+.product-group {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+.product-group-content {
+    padding: 0;
+}
+.product-group-content table {
+    margin-bottom: 0;
+}
+.product-group table th {
+    position: sticky;
+    top: 0;
+    background-color: #fff;
+    z-index: 10;
+    padding: 6px;
+    font-size: 0.85rem;
+}
+.product-group table td {
+    padding: 5px 6px;
+    font-size: 0.85rem;
+}
+.btn-sm {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+}
+.table-compact {
+    margin-bottom: 0;
+}
+.fiyat-gizli {
+    cursor: pointer;
+}
+.fiyat-gizli .gizli-deger {
+    display: inline-block;
+}
+.fiyat-gizli .gercek-deger {
+    display: none;
+    position: absolute;
+    background: #333;
+    color: white;
+    padding: 5px;
+    border-radius: 3px;
+    z-index: 100;
+    white-space: nowrap;
+}
+.fiyat-gizli:hover .gercek-deger {
+    display: block;
+}
+
+/* Ürün seçimi için stillendirme */
+tr.secili-urun {
+    background-color: #e8f4ff !important;
+}
+
+/* Seçili ürün işareti */
+.secili-isaret {
+    display: none;
+    color: #28a745;
+    margin-left: 5px;
+}
+
+tr.secili-urun .secili-isaret {
+    display: inline-block;
+}
+
+/* Sağ tıklama menüsü için stil */
+#sag-tikla-menu {
+    position: fixed;
+    display: none;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    z-index: 1000;
+    overflow: hidden;
+}
+
+#sag-tikla-menu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#sag-tikla-menu li {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+#sag-tikla-menu li:hover {
+    background-color: #f8f9fa;
+}
+
+#sag-tikla-menu .menu-baslik {
+    font-weight: bold;
+    background-color: #f0f0f0;
+    color: #333;
+    padding: 8px 12px;
+}
+
+#sag-tikla-menu li i {
+    margin-right: 8px;
+    width: 16px;
+    text-align: center;
+} 
