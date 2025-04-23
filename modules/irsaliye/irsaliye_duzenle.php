@@ -75,11 +75,16 @@ $depolar = [
 
 // İrsaliye kalemlerini getir
 olcumBaslat('irsaliye_kalemleri');
-$query = "SELECT h.*, s.KOD as urun_kod, s.ADI as urun_adi 
+$query = "SELECT 
+            h.*, 
+            s.KOD as urun_kod, 
+            s.ADI as urun_adi, 
+            b.ADI as birim_adi
           FROM stk_fis_har h 
           LEFT JOIN stok s ON h.KARTID = s.ID
-          WHERE h.STKFISID = ? AND h.FISTIP IN ('İrsaliye', 'Irsaliye', 'IRSALIYE', '20')
-          ORDER BY h.SIRANO";
+          LEFT JOIN birim b ON h.BIRIMID = b.ID
+          WHERE h.STKFISID = ? AND h.KARTTIPI = 'S'
+          ORDER BY h.SIRANO ASC";
 $stmt = $db->prepare($query);
 $stmt->execute([$irsaliye_id]);
 $kalemler = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -141,11 +146,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $query = "INSERT INTO stk_fis_har (
                     SIRANO, BOLUMID, FISTIP, STKFISID, FISTAR, ISLEMTIPI,
                     KARTTIPI, KARTID, MIKTAR, BIRIMID, FIYAT, TUTAR,
-                    KDVORANI, KDVTUTARI, CARIID, DEPOID, SUBEID
+                    KDVORANI, KDVTUTARI, CARIID, DEPOID, SUBEID, FATSIRANO
                 ) VALUES (
                     ?, 1, '20', ?, ?, 'Çıkış',
                     'S', ?, ?, ?, ?, ?,
-                    0, 0, ?, ?, 1
+                    0, 0, ?, ?, 1, ?
                 )";
         $stmt = $db->prepare($query);
 
@@ -169,7 +174,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $_POST['birim_fiyat'][$key],
                     $_POST['kalem_toplam'][$key],
                     $_POST['cari_id'],
-                    $_POST['depo_id']
+                    $_POST['depo_id'],
+                    $sirano
                 ]);
             }
         }

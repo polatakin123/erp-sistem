@@ -6,6 +6,10 @@
  * işlevlerini içerir.
  */
 
+// Zaman aşımı süresini artır - uzun işlemler için
+ini_set('max_execution_time', 300); // 5 dakika
+ini_set('memory_limit', '256M');    // Bellek limitini artır
+
 // Oturum başlatma
 if (session_status() == PHP_SESSION_NONE) {
     session_start();

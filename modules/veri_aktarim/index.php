@@ -63,7 +63,7 @@ if (isset($_POST['db_host']) && strpos($_POST['db_host'], '\\') !== false) {
 
 // Form değerlerini al (önce cookie kontrolü yap)
 $form_data = isset($_SESSION['form_data']) ? $_SESSION['form_data'] : [
-    'db_host' => isset($_COOKIE['db_host']) ? $_COOKIE['db_host'] : 'localhost',
+    'db_host' => isset($_COOKIE['db_host']) ? $_COOKIE['db_host'] : '85.105.35.112,1433',
     'db_name' => isset($_COOKIE['db_name']) ? $_COOKIE['db_name'] : '',
     'db_user' => isset($_COOKIE['db_user']) ? $_COOKIE['db_user'] : '',
     'db_charset' => 'utf8mb4'
@@ -137,7 +137,7 @@ if (!empty($warnings)) {
                         <input type="text" class="form-control" id="db_host" name="db_host" value="<?php echo htmlspecialchars($form_data['db_host']); ?>" required>
                         <div class="form-text text-muted">
                             MySQL için: localhost veya IP adresi<br>
-                            MSSQL için: SERVER\INSTANCE formatında yazınız
+                            MSSQL için: SERVER\INSTANCE formatında yazınız veya IP,port formatında (örn: 85.105.35.112,1433)
                         </div>
                     </div>
                     <div class="mb-3">

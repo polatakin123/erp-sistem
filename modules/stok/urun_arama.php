@@ -12,7 +12,7 @@ require_once '../../includes/functions.php';
 require_once 'functions.php';
 
 // Debug modu aktif
-$debug = true; // Hata ayıklama modu açık
+$debug = false; // Hata ayıklama modu açık
 $performans_izleme = true; // Performans izleme modu açık
 ini_set('display_errors', 1); // Hata mesajlarını göster
 error_reporting(E_ALL); // Tüm hataları raporla

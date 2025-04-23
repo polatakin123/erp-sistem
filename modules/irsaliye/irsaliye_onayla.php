@@ -39,7 +39,7 @@ try {
     $db->beginTransaction();
 
     // İrsaliye kalemlerini getir
-    $query = "SELECT * FROM stk_fis_har WHERE STKFISID = ?";
+    $query = "SELECT * FROM stk_fis_har WHERE STKFISID = ? AND KARTTIPI = 'S'";
     $stmt = $db->prepare($query);
     $stmt->execute([$irsaliye_id]);
     $kalemler = $stmt->fetchAll(PDO::FETCH_ASSOC);

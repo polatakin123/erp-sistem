@@ -1,21 +1,10 @@
 <?php
-/**
- * ERP Sistem - Veritabanı Düzeltme
- * 
- * Bu dosya veritabanı ve gerekli tabloları oluşturur.
- */
-
-// Veritabanı bağlantı bilgileri - config/db.php dosyasındaki ile aynı olmalı
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-
 require_once 'config/db.php';
 
 try {
     // Veritabanı bağlantısını kontrol et
     if (!$db) {
-        die("Veritabanı bağlantısı kurulamadı!");
+        die('Veritabanı bağlantısı kurulamadı!');
     }
 
     // stk_fis tablosunu düzeltme

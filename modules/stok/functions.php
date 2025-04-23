@@ -330,20 +330,42 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
         debugEcho("Stok miktarları hesaplanıyor, ürün sayısı: " . count($urunIds));
         $stokMiktarlari = [];
         
-        // Önce miktarları STK_FIS_HAR tablosundan doğru şekilde hesaplayalım
-        if (count($urunIds) > 0) {
-            // ID'leri 20'şer gruplara böl
-            $urunChunks = array_chunk($urunIds, 20);
+        // ID'leri 20'şer gruplara böl
+        $urunChunks = array_chunk($urunIds, 20);
+        
+        foreach ($urunChunks as $chunk) {
+            // Zaman aşımı kontrolü
+            if (microtime(true) - $startTime > $timeoutSeconds) {
+                throw new Exception("Stok miktarları hesaplanırken zaman aşımı oluştu.");
+            }
             
-            foreach ($urunChunks as $chunk) {
-                // Zaman aşımı kontrolü
-                if (microtime(true) - $startTime > $timeoutSeconds) {
-                    throw new Exception("Stok miktarları hesaplanırken zaman aşımı oluştu.");
+            $idPlaceholders = implode(',', $chunk);
+            
+            // Önce STK_URUN_MIKTAR tablosundaki mevcut stok miktarlarını kontrol et
+            $mevcutMiktarSql = "SELECT URUN_ID, MIKTAR FROM STK_URUN_MIKTAR WHERE URUN_ID IN ($idPlaceholders)";
+            $mevcutMiktarlar = olcumluSorgu($db, $mevcutMiktarSql);
+            
+            $urunlerinMevcutMiktarlari = [];
+            $islemYapilacakUrunler = []; // STK_FIS_HAR kontrolü yapılacak ürünler
+            
+            // Mevcut miktarları ayarla ve işlem yapılacak ürünleri belirle
+            foreach ($mevcutMiktarlar as $row) {
+                $urunlerinMevcutMiktarlari[$row['URUN_ID']] = (float)$row['MIKTAR'];
+                $stokMiktarlari[$row['URUN_ID']] = (float)$row['MIKTAR']; // Mevcut miktarları direkt kullan
+            }
+            
+            // Mevcut miktarı olmayan ürünleri belirle
+            foreach ($chunk as $urunId) {
+                if (!isset($urunlerinMevcutMiktarlari[$urunId])) {
+                    $islemYapilacakUrunler[] = $urunId;
                 }
+            }
+            
+            // Sadece stok miktarı olmayan ürünler için STK_FIS_HAR kontrolü yap
+            if (!empty($islemYapilacakUrunler)) {
+                $islemIdPlaceholders = implode(',', $islemYapilacakUrunler);
                 
-                $idPlaceholders = implode(',', $chunk);
-                
-                // 1. Direkt olarak STK_FIS_HAR tablosundan stok hareketlerini topla
+                // STK_FIS_HAR tablosundan stok hareketlerini topla
                 $hareketSql = "
                     SELECT 
                         KARTID,
@@ -355,7 +377,7 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
                     FROM 
                         STK_FIS_HAR
                     WHERE 
-                        KARTID IN ($idPlaceholders)
+                        KARTID IN ($islemIdPlaceholders)
                     GROUP BY 
                         KARTID
                 ";
@@ -375,7 +397,7 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
                             FROM 
                                 STK_FIS_HAR
                             WHERE 
-                                KARTID IN ($idPlaceholders)
+                                KARTID IN ($islemIdPlaceholders)
                             ORDER BY
                                 KARTID, ISLEMTIPI
                         ";
@@ -392,39 +414,38 @@ function hesaplaVeKaydetStokMiktarlari($db, $urunIds) {
                         debugEcho("Hesaplanan stok hareketleri:", $hareketMiktarlari);
                     }
                     
-                    // Her ürün için stok miktarını belirle
-                    foreach ($chunk as $urunId) {
+                    // Her işlem yapılacak ürün için stok miktarını belirle
+                    foreach ($islemYapilacakUrunler as $urunId) {
                         $stokMiktarlari[$urunId] = isset($hareketMiktarlari[$urunId]) ? $hareketMiktarlari[$urunId] : 0;
                     }
-                    
-                    // Hesaplanan miktarları STK_URUN_MIKTAR tablosuna kaydet
-                    foreach ($stokMiktarlari as $urunId => $miktar) {
-                        try {
-                            // Önce mevcut kaydı kontrol et
-                            $kontrolSql = "SELECT URUN_ID FROM STK_URUN_MIKTAR WHERE URUN_ID = ?";
-                            $kontrolStmt = $db->prepare($kontrolSql);
-                            $kontrolStmt->execute([$urunId]);
-                            
-                            if ($kontrolStmt->rowCount() > 0) {
-                                // Mevcut kaydı güncelle
-                                $updateSql = "UPDATE STK_URUN_MIKTAR SET MIKTAR = ?, SON_GUNCELLEME = NOW() WHERE URUN_ID = ?";
-                                $db->prepare($updateSql)->execute([$miktar, $urunId]);
-                            } else {
-                                // Yeni kayıt ekle
-                                $insertSql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLEME) VALUES (?, ?, NOW())";
-                                $db->prepare($insertSql)->execute([$urunId, $miktar]);
-                            }
-                        } catch (Exception $e) {
-                            debugEcho("Miktar güncelleme hatası (ürün ID: $urunId): " . $e->getMessage());
-                        }
-                    }
-                    
                 } catch (Exception $e) {
                     debugEcho("Stok hareketi hesaplama hatası: " . $e->getMessage());
                 }
-                
-                $sleep(); // 100ms bekle
             }
+            
+            // Hesaplanan miktarları STK_URUN_MIKTAR tablosuna kaydet
+            foreach ($stokMiktarlari as $urunId => $miktar) {
+                try {
+                    // Önce mevcut kaydı kontrol et
+                    $kontrolSql = "SELECT URUN_ID FROM STK_URUN_MIKTAR WHERE URUN_ID = ?";
+                    $kontrolStmt = $db->prepare($kontrolSql);
+                    $kontrolStmt->execute([$urunId]);
+                    
+                    if ($kontrolStmt->rowCount() > 0) {
+                        // Mevcut kaydı güncelle
+                        $updateSql = "UPDATE STK_URUN_MIKTAR SET MIKTAR = ?, SON_GUNCELLEME = NOW() WHERE URUN_ID = ?";
+                        $db->prepare($updateSql)->execute([$miktar, $urunId]);
+                    } else {
+                        // Yeni kayıt ekle
+                        $insertSql = "INSERT INTO STK_URUN_MIKTAR (URUN_ID, MIKTAR, SON_GUNCELLEME) VALUES (?, ?, NOW())";
+                        $db->prepare($insertSql)->execute([$urunId, $miktar]);
+                    }
+                } catch (Exception $e) {
+                    debugEcho("Miktar güncelleme hatası (ürün ID: $urunId): " . $e->getMessage());
+                }
+            }
+            
+            $sleep(); // 100ms bekle
         }
         
         // Debug detaylar

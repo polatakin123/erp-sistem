@@ -39,6 +39,11 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
     <!-- Custom CSS -->
     <link href="<?php echo $rootPath; ?>assets/css/style.css" rel="stylesheet">
     
+    <?php if (isset($customCSS)): ?>
+    <!-- Page Specific CSS -->
+    <?php echo $customCSS; ?>
+    <?php endif; ?>
+    
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     
@@ -318,27 +323,27 @@ if (strpos($_SERVER['PHP_SELF'], '/modules/') !== false) {
                             <i class="fas fa-truck"></i> İrsaliye
                         </a>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_ozet.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_ozet.php">
                                 <i class="fas fa-chart-bar"></i> İrsaliye Özet
                             </a></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_listesi.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_listesi.php">
                                 <i class="fas fa-list"></i> İrsaliye Listesi
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/alis_irsaliyesi.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/alis_irsaliyesi.php">
                                 <i class="fas fa-arrow-circle-down"></i> Alış İrsaliyesi
                             </a></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/yurtici_satis_irsaliyesi.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/yurtici_satis_irsaliyesi.php">
                                 <i class="fas fa-arrow-circle-up"></i> Yurt İçi Satış İrsaliyesi
                             </a></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/yurtdisi_satis_irsaliyesi.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/yurtdisi_satis_irsaliyesi.php">
                                 <i class="fas fa-globe"></i> Yurt Dışı Satış İrsaliyesi
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/irsaliye_hareketleri.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/irsaliye_hareketleri.php">
                                 <i class="fas fa-exchange-alt"></i> İrsaliye Hareketleri
                             </a></li>
-                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>/modules/irsaliye/toplu_faturala.php">
+                            <li><a class="dropdown-item" href="<?php echo $rootPath; ?>modules/irsaliye/toplu_faturala.php">
                                 <i class="fas fa-file-invoice"></i> Toplu Faturala
                             </a></li>
                         </ul>
